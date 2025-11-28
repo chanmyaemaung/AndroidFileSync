@@ -41,7 +41,6 @@ struct TransferProgressView: View {
                             )
                         )
                         .font(.title3)
-                        .symbolEffect(.pulse)
                     
                     Text(title)
                         .font(.system(.headline, design: .rounded, weight: .semibold))
@@ -64,7 +63,6 @@ struct TransferProgressView: View {
                 // Transfer items
                 ForEach(items) { item in
                     TransferItemView(item: item)
-                        .transition(.scale.combined(with: .opacity))
                 }
             }
             .padding(16)
@@ -85,7 +83,6 @@ struct TransferProgressView: View {
                 }
             )
         }
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: items.count)
     }
 }
 
@@ -101,7 +98,6 @@ struct TransferItemView: View {
                 Image(systemName: item.isUpload ? "arrow.up.doc.fill" : "arrow.down.doc.fill")
                     .foregroundColor(statusColor)
                     .font(.body)
-                    .symbolEffect(.bounce, value: item.percentage)
                 
                 Text(item.fileName)
                     .font(.system(.callout, design: .default, weight: .medium))
@@ -115,12 +111,10 @@ struct TransferItemView: View {
                         .foregroundColor(.red)
                         .font(.caption)
                         .help(error)
-                        .symbolEffect(.pulse)
                 } else if item.isComplete {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(.green)
                         .font(.body)
-                        .symbolEffect(.bounce, value: item.isComplete)
                 }
             }
             
@@ -132,7 +126,7 @@ struct TransferItemView: View {
                         .fill(Color.secondary.opacity(0.15))
                         .frame(height: 8)
                     
-                    // Progress fill with gradient
+                    // Progress fill with gradient - NO animation
                     RoundedRectangle(cornerRadius: 6)
                         .fill(
                             LinearGradient(
@@ -142,7 +136,6 @@ struct TransferItemView: View {
                             )
                         )
                         .frame(width: geometry.size.width * item.progress, height: 8)
-                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: item.progress)
                 }
             }
             .frame(height: 8)
