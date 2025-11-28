@@ -91,6 +91,7 @@
 				Views/FileBrowserView.swift,
 				Views/FileRowView.swift,
 				Views/HeaderView.swift,
+				Views/TransferProgressView.swift,
 			);
 			target = 453BAF082EC66BC4008AABAB /* AndroidFileSync */;
 		};
@@ -119,6 +120,7 @@
 				Views/FileBrowserView.swift,
 				Views/FileRowView.swift,
 				Views/HeaderView.swift,
+				Views/TransferProgressView.swift,
 			);
 			target = 453BAF1A2EC66C1C008AABAB /* AndroidFileProvider */;
 		};

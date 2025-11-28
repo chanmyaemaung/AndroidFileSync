@@ -29,6 +29,36 @@ struct Shell {
         return (process.terminationStatus, output, error)
     }
     
+    // Truly async run using continuation and termination handler
+    static func runAsync(_ command: String, args: [String]) async -> (Int32, String, String) {
+        return await withCheckedContinuation { continuation in
+            let process = Process()
+            let stdout = Pipe()
+            let stderr = Pipe()
+            
+            process.executableURL = URL(fileURLWithPath: command)
+            process.arguments = args
+            process.standardOutput = stdout
+            process.standardError = stderr
+            
+            process.terminationHandler = { process in
+                let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
+                let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
+                
+                let output = String(data: outputData, encoding: .utf8) ?? ""
+                let error = String(data: errorData, encoding: .utf8) ?? ""
+                
+                continuation.resume(returning: (process.terminationStatus, output, error))
+            }
+            
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(returning: (-1, "", error.localizedDescription))
+            }
+        }
+    }
+    
     static func bash(_ command: String) async -> (Int32, String, String) {
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {

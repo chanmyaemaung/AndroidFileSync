@@ -5,6 +5,7 @@
 import Foundation
 internal import Combine
 
+@MainActor
 class DownloadManager: ObservableObject {
     // Store progress for each file being downloaded (Key: devicePath)
     @Published var activeDownloads: [String: DownloadProgress] = [:]
@@ -55,57 +56,37 @@ class DownloadManager: ObservableObject {
         // Add to active list
         activeDownloads[devicePath] = progress
         
-        do {
-            print("📥 Downloading: \(fileName) (\(formatBytes(fileSize)))")
-            
-            // Call ADBManager directly
-            try await ADBManager.pullFileWithProgress(
-                devicePath: devicePath,
-                localPath: localPath,
-                progressCallback: { [weak self] percentOrBytes, speed in
-                    
-                    // Update UI on Main Thread
-                    Task { @MainActor in
-                        guard let self = self,
-                              var currentProgress = self.activeDownloads[devicePath] else { return }
-                        
-                        // If the value is small (<= 100), assume it's a percentage (0-100).
-                        // If it's large, assume it's raw bytes transferred.
-                        if percentOrBytes <= 100 {
-                            currentProgress.bytesTransferred =
-                                UInt64(Double(fileSize) * Double(percentOrBytes) / 100.0)
-                        } else {
-                            currentProgress.bytesTransferred = percentOrBytes
-                        }
-                        
-                        currentProgress.transferSpeed = speed
-                        self.activeDownloads[devicePath] = currentProgress
-                    }
-                }
-            )
-            
-            // Mark as complete
-            if var download = activeDownloads[devicePath] {
-                download.isComplete = true
-                download.bytesTransferred = fileSize
-                download.transferSpeed = 0
-                activeDownloads[devicePath] = download
+        print("📥 Downloading: \(fileName) (\(formatBytes(fileSize)))")
+        
+        // Get the progress stream
+        let progressStream = ADBManager.pullFileWithProgress(
+            devicePath: devicePath,
+            localPath: localPath
+        )
+        
+        // Iterate over the stream and update UI
+        for await (bytesTransferred, speed) in progressStream {
+            if var currentProgress = activeDownloads[devicePath] {
+                currentProgress.bytesTransferred = bytesTransferred
+                currentProgress.transferSpeed = speed
+                activeDownloads[devicePath] = currentProgress
+                
+                // print("🔄 UI Update: \(bytesTransferred) bytes") // Optional logging
             }
-            
-            print("✅ Download complete: \(fileName)")
-            
-            // Briefly show “100%” before removing it
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            activeDownloads.removeValue(forKey: devicePath)
-            
-        } catch {
-            print("❌ Download Error: \(error.localizedDescription)")
-            
-            if var download = activeDownloads[devicePath] {
-                download.error = error.localizedDescription
-                activeDownloads[devicePath] = download
-            }
-            throw error
         }
+        
+        // Mark as complete
+        if var download = activeDownloads[devicePath] {
+            download.isComplete = true
+            download.bytesTransferred = fileSize
+            download.transferSpeed = 0
+            activeDownloads[devicePath] = download
+        }
+        
+        print("✅ Download complete: \(fileName)")
+        
+        // Briefly show "100%" before removing it
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        activeDownloads.removeValue(forKey: devicePath)
     }
 }

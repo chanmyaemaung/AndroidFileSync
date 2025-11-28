@@ -491,15 +491,82 @@ class ADBManager {
 
     static func pullFileWithProgress(
         devicePath: String,
-        localPath: String,
-        progressCallback: @escaping (UInt64, Double) -> Void
-    ) async throws {
-        try await transferFileWithProgress(
-            command: "pull",
-            source: devicePath,
-            dest: localPath,
-            callback: progressCallback
-        )
+        localPath: String
+    ) -> AsyncStream<(UInt64, Double)> {
+        return AsyncStream { continuation in
+            let adbPath = getADBPath()
+            
+            Task {
+                await withTaskGroup(of: Void.self) { group in
+                    // Task 1: Run the download
+                    group.addTask {
+                        let (code, _, error) = await Shell.runAsync(adbPath, args: ["pull", devicePath, localPath])
+                        if code != 0 {
+                            print("❌ ADB Pull Error: \(error)")
+                        } else {
+                            print("✅ ADB Pull completed successfully")
+                        }
+                    }
+                    
+                    // Task 2: Poll for progress
+                    group.addTask {
+                        var lastSize: UInt64 = 0
+                        var lastCheck = Date()
+                        var noChangeCount = 0
+                        
+                        while true {
+                            if FileManager.default.fileExists(atPath: localPath) {
+                                if let attrs = try? FileManager.default.attributesOfItem(atPath: localPath),
+                                   let currentSize = attrs[.size] as? UInt64 {
+                                    
+                                    let now = Date()
+                                    let timeDiff = now.timeIntervalSince(lastCheck)
+                                    
+                                    if currentSize > lastSize && timeDiff >= 0.1 {
+                                        let bytesDiff = currentSize - lastSize
+                                        let speed = Double(bytesDiff) / timeDiff / (1024 * 1024) // MB/s
+                                        
+                                        print("📊 Progress: \(currentSize) bytes, \(String(format: "%.1f", speed)) MB/s")
+                                        continuation.yield((currentSize, speed))
+                                        
+                                        lastSize = currentSize
+                                        lastCheck = now
+                                        noChangeCount = 0
+                                    } else if currentSize == lastSize && timeDiff >= 0.5 {
+                                        // File size hasn't changed for 0.5s
+                                        noChangeCount += 1
+                                        lastCheck = now
+                                        
+                                        // If file size stable for 2 seconds, assume download is done
+                                        if noChangeCount >= 4 {
+                                            print("📊 Final size: \(currentSize) bytes")
+                                            continuation.yield((currentSize, 0))
+                                            return
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                        }
+                    }
+                    
+                    // Wait for download to complete
+                    await group.next()
+                    
+                    // Cancel the polling task
+                    group.cancelAll()
+                }
+                
+                // Send final update
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: localPath),
+                   let finalSize = attrs[.size] as? UInt64 {
+                    continuation.yield((finalSize, 0))
+                }
+                
+                continuation.finish()
+            }
+        }
     }
 
     static func pushFileWithProgress(
@@ -507,6 +574,7 @@ class ADBManager {
         devicePath: String,
         progressCallback: @escaping (UInt64, Double) -> Void
     ) async throws {
+        // For uploads, we still rely on ADB output parsing as we can't easily poll remote file size
         try await transferFileWithProgress(
             command: "push",
             source: localPath,
@@ -526,36 +594,50 @@ class ADBManager {
         var lastUpdate = Date()
         var lastPercent: Double = 0.0
         var buffer = ""
+        let startTime = Date()
 
         let (code, _, error) = await Shell.runWithProgress(
             adbPath,
             args: [command, source, dest],
             progressCallback: { outputChunk in
                 buffer += outputChunk
-                if buffer.count > 200 {
-                    buffer = String(buffer.suffix(200))
+                if buffer.count > 300 {
+                    buffer = String(buffer.suffix(300))
                 }
 
-                if let range = buffer.range(of: "\\[\\s*(\\d+)%\\]", options: .regularExpression) {
+                // Match any number followed by % (e.g., "12%", "[12%]", "(12%)")
+                if let range = buffer.range(of: "(\\d+)%", options: .regularExpression) {
                     let match = String(buffer[range])
                     let digits = match.components(
                         separatedBy: CharacterSet.decimalDigits.inverted
                     ).joined()
+                    
                     if let percent = Double(digits) {
-                        let now = Date()
-                        let dt = now.timeIntervalSince(lastUpdate)
-                        var estimatedSpeed: Double = 0.0
-                        if dt >= 0.5 {
-                            let dp = percent - lastPercent
-                            estimatedSpeed = dp / dt
-                            lastUpdate = now
-                            lastPercent = percent
+                        if percent > lastPercent || Date().timeIntervalSince(lastUpdate) > 0.1 {
+                             let now = Date()
+                             let dt = now.timeIntervalSince(lastUpdate)
+                             var estimatedSpeed: Double = 0.0
+                             
+                             if dt > 0.1 { 
+                                 let dp = percent - lastPercent
+                                 estimatedSpeed = dp / dt 
+                             }
+                             
+                             lastUpdate = now
+                             lastPercent = percent
+                             
+                             callback(UInt64(percent), estimatedSpeed)
                         }
-                        callback(UInt64(percent), estimatedSpeed)
                     }
                 }
             }
         )
+        
+        if code == 0 {
+            let totalTime = Date().timeIntervalSince(startTime)
+            let avgSpeed = totalTime > 0 ? 100.0 / totalTime : 0
+            callback(100, avgSpeed)
+        }
 
         if code != 0 {
             if error.contains("read-only") || error.contains("permission denied") {

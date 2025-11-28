@@ -233,19 +233,53 @@ struct ContentView: View {
                 EmptyStateView()
             }
             
-            // Progress/Status Views
-            if !downloadManager.activeDownloads.isEmpty {
-                // Your progress view implementation
-                ForEach(Array(downloadManager.activeDownloads.values)) { download in
-                    VStack(alignment: .leading) {
-                        Text(download.fileName).font(.caption)
-                        ProgressView(value: download.progress)
-                    }.padding()
-                }
+            // Enhanced Progress Views with Speed and Details
+            if !downloadManager.activeDownloads.isEmpty || !uploadManager.activeUploads.isEmpty {
+                TransferProgressView(
+                    title: "Active Transfers",
+                    items: getTransferItems()
+                )
             }
         }
         .frame(minWidth: 800, minHeight: 600)
         .task { await initializeDevice() }
+    }
+    
+    // Convert progress data to TransferItemData
+    private func getTransferItems() -> [TransferItemData] {
+        var items: [TransferItemData] = []
+        
+        // Add downloads
+        for download in downloadManager.activeDownloads.values {
+            items.append(TransferItemData(
+                fileName: download.fileName,
+                progress: download.progress,
+                percentage: download.progressPercentage,
+                speed: download.speedText,
+                bytesTransferred: download.bytesTransferred,
+                totalBytes: download.totalBytes,
+                isComplete: download.isComplete,
+                error: download.error,
+                isUpload: false
+            ))
+        }
+        
+        // Add uploads
+        for upload in uploadManager.activeUploads.values {
+            items.append(TransferItemData(
+                fileName: upload.fileName,
+                progress: upload.progress,
+                percentage: upload.progressPercentage,
+                speed: upload.speedText,
+                bytesTransferred: upload.bytesTransferred,
+                totalBytes: upload.totalBytes,
+                isComplete: upload.isComplete,
+                error: upload.error,
+                isUpload: true
+            ))
+        }
+        
+        return items
     }
 
     // MARK: - Functions (Your navigation and data loading logic)
@@ -329,5 +363,5 @@ struct ContentView: View {
             await loadFiles()
         }
     }
-
 }
+
