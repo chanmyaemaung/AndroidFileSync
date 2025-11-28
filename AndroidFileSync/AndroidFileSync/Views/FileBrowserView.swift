@@ -6,7 +6,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct FileBrowserView: View {
+struct FileBrowserView: View, Equatable {
     let files: [UnifiedFile]
     let currentPath: String
     let isLoading: Bool
@@ -15,6 +15,14 @@ struct FileBrowserView: View {
     let onGoBack: () -> Void
     let onDownload: (UnifiedFile) -> Void
     let onUpload: ([URL]) -> Void
+    
+    // Equatable implementation - only compare data that affects rendering
+    static func == (lhs: FileBrowserView, rhs: FileBrowserView) -> Bool {
+        lhs.files.map(\.id) == rhs.files.map(\.id) &&
+        lhs.currentPath == rhs.currentPath &&
+        lhs.isLoading == rhs.isLoading &&
+        lhs.canGoBack == rhs.canGoBack
+    }
     
     // FIX 1: Bring back the state variable for UI feedback
     @State private var isDraggingOver = false

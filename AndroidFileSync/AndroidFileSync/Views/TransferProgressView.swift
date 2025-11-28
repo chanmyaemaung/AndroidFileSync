@@ -9,7 +9,7 @@ import SwiftUI
 
 // Simple data structure for transfer items
 struct TransferItemData: Identifiable {
-    let id = UUID()
+    let id: String  // Use stable ID based on file path
     let fileName: String
     let progress: Double
     let percentage: Int
@@ -29,26 +29,63 @@ struct TransferProgressView: View {
         VStack(spacing: 0) {
             Divider()
             
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 12) {
                 // Header
-                HStack {
+                HStack(spacing: 8) {
                     Image(systemName: "arrow.up.arrow.down.circle.fill")
-                        .foregroundColor(.blue)
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.blue, .purple],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .font(.title3)
+                        .symbolEffect(.pulse)
+                    
                     Text(title)
-                        .font(.headline)
+                        .font(.system(.headline, design: .rounded, weight: .semibold))
+                    
                     Spacer()
+                    
+                    // Active transfers count
+                    Text("\(items.count)")
+                        .font(.system(.caption, design: .rounded, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(
+                            Capsule()
+                                .fill(Color.blue.opacity(0.8))
+                        )
                 }
                 .padding(.bottom, 4)
                 
                 // Transfer items
                 ForEach(items) { item in
                     TransferItemView(item: item)
+                        .transition(.scale.combined(with: .opacity))
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(Color(NSColor.controlBackgroundColor).opacity(0.95))
+            .padding(16)
+            .background(
+                ZStack {
+                    // Subtle gradient background
+                    LinearGradient(
+                        colors: [
+                            Color(NSColor.controlBackgroundColor).opacity(0.95),
+                            Color(NSColor.controlBackgroundColor).opacity(0.85)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    
+                    // Glass morphism effect
+                    Color.white.opacity(0.03)
+                }
+            )
         }
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: items.count)
     }
 }
 
@@ -58,15 +95,16 @@ struct TransferItemView: View {
     let item: TransferItemData
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             // File name and status
-            HStack {
-                Image(systemName: item.isUpload ? "arrow.up.doc" : "arrow.down.doc")
+            HStack(spacing: 8) {
+                Image(systemName: item.isUpload ? "arrow.up.doc.fill" : "arrow.down.doc.fill")
                     .foregroundColor(statusColor)
-                    .font(.caption)
+                    .font(.body)
+                    .symbolEffect(.bounce, value: item.percentage)
                 
                 Text(item.fileName)
-                    .font(.system(.body, design: .default))
+                    .font(.system(.callout, design: .default, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 
@@ -77,49 +115,87 @@ struct TransferItemView: View {
                         .foregroundColor(.red)
                         .font(.caption)
                         .help(error)
+                        .symbolEffect(.pulse)
                 } else if item.isComplete {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(.green)
-                        .font(.caption)
+                        .font(.body)
+                        .symbolEffect(.bounce, value: item.isComplete)
                 }
             }
             
-            // Progress bar
-            ProgressView(value: item.progress, total: 1.0)
-                .progressViewStyle(.linear)
-                .tint(progressTint)
+            // Progress bar with gradient
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    // Background track
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.secondary.opacity(0.15))
+                        .frame(height: 8)
+                    
+                    // Progress fill with gradient
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(
+                            LinearGradient(
+                                colors: progressGradient,
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: geometry.size.width * item.progress, height: 8)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: item.progress)
+                }
+            }
+            .frame(height: 8)
             
             // Stats row
             HStack(spacing: 12) {
-                // Percentage
-                Text("\(item.percentage)%")
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundColor(.secondary)
-                    .frame(minWidth: 40, alignment: .leading)
+                // Percentage with icon
+                HStack(spacing: 4) {
+                    Image(systemName: "percent")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                    Text("\(item.percentage)")
+                        .font(.system(.caption, design: .rounded, weight: .semibold))
+                        .foregroundColor(.secondary)
+                }
+                .frame(minWidth: 45, alignment: .leading)
                 
-                // Speed
+                // Speed with animation
                 if !item.speed.isEmpty && !item.isComplete {
-                    HStack(spacing: 2) {
+                    HStack(spacing: 4) {
                         Image(systemName: "speedometer")
-                            .font(.system(size: 9))
+                            .font(.system(size: 10))
+                            .foregroundColor(.blue.opacity(0.8))
                         Text(item.speed)
+                            .font(.system(.caption, design: .rounded, weight: .medium))
+                            .foregroundColor(.blue.opacity(0.9))
                     }
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(
+                        Capsule()
+                            .fill(Color.blue.opacity(0.1))
+                    )
                 }
                 
                 Spacer()
                 
                 // Bytes transferred / total
                 Text("\(formatBytes(item.bytesTransferred)) / \(formatBytes(item.totalBytes))")
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(.caption, design: .monospaced, weight: .regular))
                     .foregroundColor(.secondary)
             }
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 12)
-        .background(itemBackground)
-        .cornerRadius(8)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(itemBackground)
+                .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(borderColor, lineWidth: 1)
+        )
     }
     
     private var statusColor: Color {
@@ -132,23 +208,37 @@ struct TransferItemView: View {
         }
     }
     
-    private var progressTint: Color {
+    private var progressGradient: [Color] {
         if item.error != nil {
-            return .red
+            return [.red.opacity(0.8), .red]
         } else if item.isComplete {
-            return .green
+            return [.green.opacity(0.7), .green]
         } else {
-            return item.isUpload ? .blue : .purple
+            return item.isUpload 
+                ? [.blue.opacity(0.7), .blue]
+                : [.purple.opacity(0.7), .purple]
         }
     }
     
     private var itemBackground: Color {
         if item.error != nil {
-            return Color.red.opacity(0.05)
+            return Color.red.opacity(0.08)
         } else if item.isComplete {
-            return Color.green.opacity(0.05)
+            return Color.green.opacity(0.08)
         } else {
-            return Color(NSColor.controlBackgroundColor)
+            return Color(NSColor.controlBackgroundColor).opacity(0.6)
+        }
+    }
+    
+    private var borderColor: Color {
+        if item.error != nil {
+            return Color.red.opacity(0.2)
+        } else if item.isComplete {
+            return Color.green.opacity(0.2)
+        } else {
+            return item.isUpload 
+                ? Color.blue.opacity(0.15)
+                : Color.purple.opacity(0.15)
         }
     }
     
@@ -162,4 +252,3 @@ struct TransferItemView: View {
 }
 
 // MARK: - Helper Function
-

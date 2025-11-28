@@ -512,9 +512,8 @@ class ADBManager {
                     group.addTask {
                         var lastSize: UInt64 = 0
                         var lastCheck = Date()
-                        var noChangeCount = 0
                         
-                        while true {
+                        while !Task.isCancelled {
                             if FileManager.default.fileExists(atPath: localPath) {
                                 if let attrs = try? FileManager.default.attributesOfItem(atPath: localPath),
                                    let currentSize = attrs[.size] as? UInt64 {
@@ -531,23 +530,11 @@ class ADBManager {
                                         
                                         lastSize = currentSize
                                         lastCheck = now
-                                        noChangeCount = 0
-                                    } else if currentSize == lastSize && timeDiff >= 0.5 {
-                                        // File size hasn't changed for 0.5s
-                                        noChangeCount += 1
-                                        lastCheck = now
-                                        
-                                        // If file size stable for 2 seconds, assume download is done
-                                        if noChangeCount >= 4 {
-                                            print("📊 Final size: \(currentSize) bytes")
-                                            continuation.yield((currentSize, 0))
-                                            return
-                                        }
                                     }
                                 }
                             }
                             
-                            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                            try? await Task.sleep(nanoseconds: 500_000_000) // 500ms - reduce ADB contention
                         }
                     }
                     

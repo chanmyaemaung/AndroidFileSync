@@ -27,9 +27,9 @@
 //    @StateObject private var deviceManager = DeviceManager()
 //    @StateObject private var downloadManager = DownloadManager()
 //    @StateObject private var uploadManager = UploadManager()
-//    
 //    @State private var files: [UnifiedFile] = []
-//    @State private var currentPath = "/sdcard"
+//    @State private var currentPath: String = ""
+//    @State private var loadTask: Task<Void, Never>? = nil
 //    @State private var pathHistory: [String] = []
 //    @State private var isLoading = false
 //    
@@ -196,14 +196,16 @@
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var deviceManager = DeviceManager()
-    @StateObject private var downloadManager = DownloadManager() // Use the non-blocking version
-    @StateObject private var uploadManager = UploadManager()   // A non-blocking version is needed for this too
+    // Receive managers from App - don't observe them here
+    let deviceManager: DeviceManager
+    let downloadManager: DownloadManager
+    let uploadManager: UploadManager
 
     @State private var files: [UnifiedFile] = []
     @State private var currentPath = "/sdcard"
     @State private var pathHistory: [String] = []
     @State private var isLoading = false
+    @State private var loadTask: Task<Void, Never>? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -227,61 +229,24 @@ struct ContentView: View {
                         onDownload: handleDownload,
                         onUpload: handleUpload
                     )
+                    .equatable()  // Prevent unnecessary redraws
                 }
+                .id("browser_\(currentPath)")  // Isolate from sibling view updates
             } else {
                 // Your EmptyStateView or a loading view
                 EmptyStateView()
             }
             
-            // Enhanced Progress Views with Speed and Details
-            if !downloadManager.activeDownloads.isEmpty || !uploadManager.activeUploads.isEmpty {
-                TransferProgressView(
-                    title: "Active Transfers",
-                    items: getTransferItems()
-                )
-            }
+            // Enhanced Progress Views with Speed and Details (Isolated)
+            TransferProgressContainer(
+                downloadManager: downloadManager,
+                uploadManager: uploadManager
+            )
         }
         .frame(minWidth: 800, minHeight: 600)
         .task { await initializeDevice() }
     }
     
-    // Convert progress data to TransferItemData
-    private func getTransferItems() -> [TransferItemData] {
-        var items: [TransferItemData] = []
-        
-        // Add downloads
-        for download in downloadManager.activeDownloads.values {
-            items.append(TransferItemData(
-                fileName: download.fileName,
-                progress: download.progress,
-                percentage: download.progressPercentage,
-                speed: download.speedText,
-                bytesTransferred: download.bytesTransferred,
-                totalBytes: download.totalBytes,
-                isComplete: download.isComplete,
-                error: download.error,
-                isUpload: false
-            ))
-        }
-        
-        // Add uploads
-        for upload in uploadManager.activeUploads.values {
-            items.append(TransferItemData(
-                fileName: upload.fileName,
-                progress: upload.progress,
-                percentage: upload.progressPercentage,
-                speed: upload.speedText,
-                bytesTransferred: upload.bytesTransferred,
-                totalBytes: upload.totalBytes,
-                isComplete: upload.isComplete,
-                error: upload.error,
-                isUpload: true
-            ))
-        }
-        
-        return items
-    }
-
     // MARK: - Functions (Your navigation and data loading logic)
 
     private func initializeDevice() async {
@@ -293,21 +258,75 @@ struct ContentView: View {
     }
     
     private func loadFiles() async {
-        isLoading = true
-        self.files = (try? await deviceManager.listFiles(path: currentPath)) ?? []
-        isLoading = false
+        // Check if cancelled early
+        guard !Task.isCancelled else { return }
+        
+        // Pause download progress updates to avoid ADB contention
+        await MainActor.run {
+            downloadManager.pauseUpdates()
+            isLoading = true
+        }
+        
+        // Check again before expensive operation
+        guard !Task.isCancelled else {
+            await MainActor.run {
+                isLoading = false
+                downloadManager.resumeUpdates()
+            }
+            return
+        }
+        
+        // Do the expensive work completely off main thread
+        let newFiles = (try? await deviceManager.listFiles(path: currentPath)) ?? []
+        
+        // Check before updating UI
+        guard !Task.isCancelled else {
+            await MainActor.run {
+                isLoading = false
+                downloadManager.resumeUpdates()
+            }
+            return
+        }
+        
+        // Quick, simple update without animation
+        await MainActor.run {
+            self.files = newFiles
+            isLoading = false
+            downloadManager.resumeUpdates()  // Resume progress updates
+        }
     }
 
     private func navigateTo(_ path: String) {
+        // Cancel any in-progress load
+        loadTask?.cancel()
+        
         pathHistory.append(currentPath)
         currentPath = path
-        Task { await loadFiles() }
+        
+        // Show loading but keep old files visible
+        isLoading = true
+        
+        // Force completely off main thread
+        loadTask = Task.detached(priority: .userInitiated) {
+            await self.loadFiles()
+        }
     }
 
     private func navigateBack() {
         guard let previousPath = pathHistory.popLast() else { return }
+        
+        // Cancel any in-progress load
+        loadTask?.cancel()
+        
         currentPath = previousPath
-        Task { await loadFiles() }
+        
+        // Show loading but keep old files visible
+        isLoading = true
+        
+        // Force completely off main thread
+        loadTask = Task.detached(priority: .userInitiated) {
+            await self.loadFiles()
+        }
     }
     
     private func handleDownload(file: UnifiedFile) {

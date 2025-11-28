@@ -1,5 +1,4 @@
 
-
 import SwiftUI
 
 @main
@@ -7,9 +6,18 @@ struct AndroidFileSyncApp: App {
     
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     
+    // Create managers at App level to prevent ContentView re-evaluation
+    @StateObject private var deviceManager = DeviceManager()
+    @StateObject private var downloadManager = DownloadManager()
+    @StateObject private var uploadManager = UploadManager()
+    
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(
+                deviceManager: deviceManager,
+                downloadManager: downloadManager,
+                uploadManager: uploadManager
+            )
         }
     }
 }
