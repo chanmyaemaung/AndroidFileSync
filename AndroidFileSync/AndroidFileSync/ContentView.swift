@@ -206,6 +206,14 @@ struct ContentView: View {
     @State private var pathHistory: [String] = []
     @State private var isLoading = false
     @State private var loadTask: Task<Void, Never>? = nil
+    
+    // File action manager
+    @StateObject private var fileActionManager = FileActionManager()
+    @State private var showErrorAlert = false
+    @State private var errorMessage = ""
+    
+    // Multi-selection state
+    @State private var selectedFiles: Set<UUID> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -224,10 +232,15 @@ struct ContentView: View {
                         currentPath: currentPath,
                         isLoading: isLoading,
                         canGoBack: !pathHistory.isEmpty,
+                        selectedFiles: $selectedFiles,
                         onNavigate: navigateTo,
                         onGoBack: navigateBack,
                         onDownload: handleDownload,
-                        onUpload: handleUpload
+                        onUpload: handleUpload,
+                        onDelete: handleDelete,
+                        onRename: handleRename,
+                        onBatchDelete: handleBatchDelete,
+                        onBatchDownload: handleBatchDownload
                     )
                     .equatable()  // Prevent unnecessary redraws
                 }
@@ -245,6 +258,13 @@ struct ContentView: View {
         }
         .frame(minWidth: 800, minHeight: 600)
         .task { await initializeDevice() }
+        .alert("Error", isPresented: $showErrorAlert) {
+            Button("OK", role: .cancel) {
+                fileActionManager.clearError()
+            }
+        } message: {
+            Text(errorMessage)
+        }
     }
     
     // MARK: - Functions (Your navigation and data loading logic)
@@ -380,6 +400,108 @@ struct ContentView: View {
             // Refresh file list after upload
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             await loadFiles()
+        }
+    }
+    
+    private func handleDelete(_ file: UnifiedFile) {
+        Task {
+            do {
+                try await fileActionManager.deleteFile(file)
+                
+                // Refresh file list after deletion
+                await loadFiles()
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showErrorAlert = true
+                }
+            }
+        }
+    }
+    
+    private func handleRename(_ file: UnifiedFile, newName: String) {
+        Task {
+            do {
+                try await fileActionManager.renameFile(file, to: newName)
+                
+                // Refresh file list after rename
+                await loadFiles()
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showErrorAlert = true
+                }
+            }
+        }
+    }
+    
+    // MARK: - Batch Operations
+    
+    private func handleBatchDelete() {
+        let filesToDelete = files.filter { selectedFiles.contains($0.id) }
+        
+        guard !filesToDelete.isEmpty else { return }
+        
+        Task {
+            do {
+                // Delete files one by one
+                for file in filesToDelete {
+                    try await fileActionManager.deleteFile(file)
+                }
+                
+                // Clear selection and refresh
+                selectedFiles.removeAll()
+                await loadFiles()
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showErrorAlert = true
+                }
+            }
+        }
+    }
+    
+    private func handleBatchDownload() {
+        let filesToDownload = files.filter { selectedFiles.contains($0.id) && !$0.isDirectory }
+        
+        guard !filesToDownload.isEmpty else {
+            errorMessage = "No downloadable files selected (folders cannot be downloaded)"
+            showErrorAlert = true
+            return
+        }
+        
+        let openPanel = NSOpenPanel()
+        openPanel.canChooseDirectories = true
+        openPanel.canChooseFiles = false
+        openPanel.canCreateDirectories = true
+        openPanel.allowsMultipleSelection = false
+        openPanel.title = "Select Download Folder"
+        openPanel.message = "Choose where to save \(filesToDownload.count) file(s)"
+        
+        openPanel.begin { response in
+            guard response == .OK, let directory = openPanel.url else { return }
+            
+            Task {
+                for file in filesToDownload {
+                    let destinationPath = directory.appendingPathComponent(file.name).path
+                    
+                    do {
+                        try await downloadManager.downloadFile(
+                            devicePath: file.path,
+                            fileName: file.name,
+                            fileSize: file.size,
+                            to: destinationPath
+                        )
+                    } catch {
+                        print("❌ Failed to download \(file.name): \(error)")
+                    }
+                }
+                
+                // Clear selection after download
+                await MainActor.run {
+                    selectedFiles.removeAll()
+                }
+            }
         }
     }
 }

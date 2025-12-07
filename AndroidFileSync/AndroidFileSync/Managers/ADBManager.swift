@@ -641,6 +641,107 @@ class ADBManager {
             )
         }
     }
+    
+    // MARK: - File Management Operations
+    
+    /// Deletes a file or folder from the Android device
+    /// - Parameter devicePath: Path to the file or folder on the device
+    static func deleteFile(devicePath: String) async throws {
+        let adbPath = getADBPath()
+        
+        // Escape single quotes in the path
+        let escapedPath = devicePath.replacingOccurrences(of: "'", with: "'\\''")
+        
+        // Use rm -rf to delete files and folders recursively
+        let command = "rm -rf '\(escapedPath)'"
+        
+        let (code, _, error) = await Shell.runAsync(adbPath, args: ["shell", command])
+        
+        if code != 0 {
+            // Check for specific error types
+            if error.contains("Read-only file system") || error.contains("read-only") {
+                throw NSError(
+                    domain: "ADB",
+                    code: Int(code),
+                    userInfo: [NSLocalizedDescriptionKey: "Cannot delete: File system is read-only"]
+                )
+            } else if error.contains("Permission denied") || error.contains("permission denied") {
+                throw NSError(
+                    domain: "ADB",
+                    code: Int(code),
+                    userInfo: [NSLocalizedDescriptionKey: "Cannot delete: Permission denied"]
+                )
+            } else if error.contains("No such file") {
+                throw NSError(
+                    domain: "ADB",
+                    code: Int(code),
+                    userInfo: [NSLocalizedDescriptionKey: "File not found"]
+                )
+            } else {
+                throw NSError(
+                    domain: "ADB",
+                    code: Int(code),
+                    userInfo: [NSLocalizedDescriptionKey: error.isEmpty ? "Failed to delete file" : error]
+                )
+            }
+        }
+        
+        print("✅ Deleted: \(devicePath)")
+    }
+    
+    /// Renames or moves a file/folder on the Android device
+    /// - Parameters:
+    ///   - oldPath: Current path of the file/folder
+    ///   - newPath: New path for the file/folder
+    static func renameFile(oldPath: String, newPath: String) async throws {
+        let adbPath = getADBPath()
+        
+        // Escape single quotes in both paths
+        let escapedOldPath = oldPath.replacingOccurrences(of: "'", with: "'\\''")
+        let escapedNewPath = newPath.replacingOccurrences(of: "'", with: "'\\''")
+        
+        // Use mv command to rename/move
+        let command = "mv '\(escapedOldPath)' '\(escapedNewPath)'"
+        
+        let (code, _, error) = await Shell.runAsync(adbPath, args: ["shell", command])
+        
+        if code != 0 {
+            // Check for specific error types
+            if error.contains("Read-only file system") || error.contains("read-only") {
+                throw NSError(
+                    domain: "ADB",
+                    code: Int(code),
+                    userInfo: [NSLocalizedDescriptionKey: "Cannot rename: File system is read-only"]
+                )
+            } else if error.contains("Permission denied") || error.contains("permission denied") {
+                throw NSError(
+                    domain: "ADB",
+                    code: Int(code),
+                    userInfo: [NSLocalizedDescriptionKey: "Cannot rename: Permission denied"]
+                )
+            } else if error.contains("No such file") {
+                throw NSError(
+                    domain: "ADB",
+                    code: Int(code),
+                    userInfo: [NSLocalizedDescriptionKey: "File not found"]
+                )
+            } else if error.contains("File exists") || error.contains("already exists") {
+                throw NSError(
+                    domain: "ADB",
+                    code: Int(code),
+                    userInfo: [NSLocalizedDescriptionKey: "A file with that name already exists"]
+                )
+            } else {
+                throw NSError(
+                    domain: "ADB",
+                    code: Int(code),
+                    userInfo: [NSLocalizedDescriptionKey: error.isEmpty ? "Failed to rename file" : error]
+                )
+            }
+        }
+        
+        print("✅ Renamed: \(oldPath) → \(newPath)")
+    }
 }
 
 // Your existing ADBFile model

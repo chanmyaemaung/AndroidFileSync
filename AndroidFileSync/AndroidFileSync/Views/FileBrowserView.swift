@@ -11,17 +11,23 @@ struct FileBrowserView: View, Equatable {
     let currentPath: String
     let isLoading: Bool
     let canGoBack: Bool
+    @Binding var selectedFiles: Set<UUID>
     let onNavigate: (String) -> Void
     let onGoBack: () -> Void
     let onDownload: (UnifiedFile) -> Void
     let onUpload: ([URL]) -> Void
+    let onDelete: ((UnifiedFile) -> Void)?
+    let onRename: ((UnifiedFile, String) -> Void)?
+    let onBatchDelete: (() -> Void)?
+    let onBatchDownload: (() -> Void)?
     
     // Equatable implementation - only compare data that affects rendering
     static func == (lhs: FileBrowserView, rhs: FileBrowserView) -> Bool {
         lhs.files.map(\.id) == rhs.files.map(\.id) &&
         lhs.currentPath == rhs.currentPath &&
         lhs.isLoading == rhs.isLoading &&
-        lhs.canGoBack == rhs.canGoBack
+        lhs.canGoBack == rhs.canGoBack &&
+        lhs.selectedFiles == rhs.selectedFiles
     }
     
     // FIX 1: Bring back the state variable for UI feedback
@@ -32,6 +38,16 @@ struct FileBrowserView: View, Equatable {
             pathBar
             Divider()
             fileListOrEmptyState
+            
+            // Selection toolbar
+            if !selectedFiles.isEmpty {
+                SelectionToolbar(
+                    selectedCount: selectedFiles.count,
+                    onClearSelection: { selectedFiles.removeAll() },
+                    onDeleteAll: { onBatchDelete?() },
+                    onDownloadAll: { onBatchDownload?() }
+                )
+            }
         }
     }
     
@@ -155,17 +171,114 @@ struct FileBrowserView: View, Equatable {
     }
     
     private var fileList: some View {
-        // Use a List for standard behavior and selection handling
-        List(files) { file in
-            FileRowView(file: file, onDownload: onDownload)
-                .onTapGesture {
-                    if file.isDirectory {
-                        onNavigate(file.path)
-                    } else {
+        Table(files, selection: $selectedFiles) {
+            TableColumn("Name") { file in
+                HStack(spacing: 8) {
+                    Image(systemName: getFileIcon(for: file))
+                        .foregroundColor(getFileColor(for: file))
+                        .frame(width: 20)
+                    
+                    Text(file.name)
+                        .lineLimit(1)
+                }
+            }
+            .width(min: 200, ideal: 300)
+            
+            TableColumn("Size") { file in
+                if file.isDirectory {
+                    Text("--")
+                        .foregroundColor(.secondary)
+                } else {
+                    Text(formatBytes(file.size))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .width(min: 80, ideal: 100)
+            
+            TableColumn("Type") { file in
+                Text(file.isDirectory ? "Folder" : getFileType(for: file))
+                    .foregroundColor(.secondary)
+            }
+            .width(min: 80, ideal: 120)
+        }
+        .contextMenu(forSelectionType: UUID.self) { selectedIds in
+            if let firstId = selectedIds.first,
+               let file = files.first(where: { $0.id == firstId }) {
+                if !file.isDirectory {
+                    Button("Download") {
                         onDownload(file)
                     }
+                    Divider()
                 }
+                
+                Button("Rename") {
+                    // Will be handled by alert
+                }
+                .disabled(onRename == nil)
+                
+                Button("Delete", role: .destructive) {
+                    onDelete?(file)
+                }
+                .disabled(onDelete == nil)
+            }
+        } primaryAction: { selectedIds in
+            // Double-click or Enter key action
+            if let firstId = selectedIds.first,
+               let file = files.first(where: { $0.id == firstId }) {
+                if file.isDirectory {
+                    onNavigate(file.path)
+                } else {
+                    onDownload(file)
+                }
+            }
         }
+    }
+    
+    // MARK: - Helper Functions
+    
+    private func getFileIcon(for file: UnifiedFile) -> String {
+        if file.isDirectory {
+            switch file.name.lowercased() {
+            case "dcim", "camera": return "camera.fill"
+            case "download", "downloads": return "arrow.down.circle.fill"
+            case "pictures", "photos": return "photo.fill"
+            case "music": return "music.note"
+            case "movies", "videos": return "film.fill"
+            case "documents": return "doc.fill"
+            default: return "folder.fill"
+            }
+        }
+        
+        let ext = (file.name as NSString).pathExtension.lowercased()
+        switch ext {
+        case "jpg", "jpeg", "png", "gif", "heic", "webp": return "photo"
+        case "mp4", "mov", "avi", "mkv": return "film"
+        case "mp3", "m4a", "wav", "flac": return "music.note"
+        case "pdf": return "doc.text"
+        case "zip", "rar", "7z": return "doc.zipper"
+        case "apk": return "app.badge"
+        default: return "doc"
+        }
+    }
+    
+    private func getFileColor(for file: UnifiedFile) -> Color {
+        if file.isDirectory { return .blue }
+        
+        let ext = (file.name as NSString).pathExtension.lowercased()
+        switch ext {
+        case "jpg", "jpeg", "png", "gif", "heic", "webp": return .purple
+        case "mp4", "mov", "avi", "mkv": return .red
+        case "mp3", "m4a", "wav", "flac": return .pink
+        case "pdf": return .orange
+        case "apk": return .green
+        default: return .secondary
+        }
+    }
+    
+    private func getFileType(for file: UnifiedFile) -> String {
+        let ext = (file.name as NSString).pathExtension.lowercased()
+        if ext.isEmpty { return "File" }
+        return ext.uppercased()
     }
     
     private var dropOverlay: some View {

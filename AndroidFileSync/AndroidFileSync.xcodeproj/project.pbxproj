@@ -75,6 +75,7 @@
 				Managers/ADBManager.swift,
 				Managers/DeviceManager.swift,
 				Managers/DownloadManager.swift,
+				Managers/FileActionManager.swift,
 				Managers/MTPDevice.swift,
 				Managers/UploadManager.swift,
 				Models/Models.swift,
@@ -91,6 +92,7 @@
 				Views/FileBrowserView.swift,
 				Views/FileRowView.swift,
 				Views/HeaderView.swift,
+				Views/SelectionToolbar.swift,
 				Views/TransferProgressContainer.swift,
 				Views/TransferProgressView.swift,
 			);
@@ -105,6 +107,7 @@
 				Managers/ADBManager.swift,
 				Managers/DeviceManager.swift,
 				Managers/DownloadManager.swift,
+				Managers/FileActionManager.swift,
 				Managers/MTPDevice.swift,
 				Managers/UploadManager.swift,
 				Models/Models.swift,
@@ -121,6 +124,7 @@
 				Views/FileBrowserView.swift,
 				Views/FileRowView.swift,
 				Views/HeaderView.swift,
+				Views/SelectionToolbar.swift,
 				Views/TransferProgressContainer.swift,
 				Views/TransferProgressView.swift,
 			);
