@@ -33,6 +33,10 @@ struct FileBrowserView: View, Equatable {
     // FIX 1: Bring back the state variable for UI feedback
     @State private var isDraggingOver = false
     
+    // Delete confirmation state
+    @State private var showDeleteConfirmation = false
+    @State private var fileToDelete: UnifiedFile? = nil
+    
     var body: some View {
         VStack(spacing: 0) {
             pathBar
@@ -48,6 +52,19 @@ struct FileBrowserView: View, Equatable {
                     onDownloadAll: { onBatchDownload?() }
                 )
             }
+        }
+        .alert("Delete \(fileToDelete?.name ?? "item")?", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {
+                fileToDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                if let file = fileToDelete {
+                    onDelete?(file)
+                }
+                fileToDelete = nil
+            }
+        } message: {
+            Text("This action cannot be undone.")
         }
     }
     
@@ -217,7 +234,8 @@ struct FileBrowserView: View, Equatable {
                 .disabled(onRename == nil)
                 
                 Button("Delete", role: .destructive) {
-                    onDelete?(file)
+                    fileToDelete = file
+                    showDeleteConfirmation = true
                 }
                 .disabled(onDelete == nil)
             }
