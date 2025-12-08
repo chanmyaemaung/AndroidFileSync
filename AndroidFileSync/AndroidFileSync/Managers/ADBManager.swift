@@ -849,6 +849,135 @@ class ADBManager {
         
         print("✅ Renamed: \(oldPath) → \(newPath)")
     }
+    
+    // MARK: - Create Folder
+    
+    /// Creates a new folder on the Android device
+    /// - Parameter path: Full path for the new folder
+    static func createFolder(at path: String) async throws {
+        let adbPath = getADBPath()
+        let escapedPath = path.replacingOccurrences(of: "'", with: "'\\''")
+        let command = "mkdir -p '\(escapedPath)'"
+        
+        let (code, _, error) = await Shell.runAsync(adbPath, args: ["shell", command])
+        
+        if code != 0 {
+            if error.contains("Read-only") {
+                throw NSError(domain: "ADB", code: Int(code), userInfo: [NSLocalizedDescriptionKey: "Cannot create folder: File system is read-only"])
+            } else if error.contains("Permission denied") {
+                throw NSError(domain: "ADB", code: Int(code), userInfo: [NSLocalizedDescriptionKey: "Cannot create folder: Permission denied"])
+            } else {
+                throw NSError(domain: "ADB", code: Int(code), userInfo: [NSLocalizedDescriptionKey: error.isEmpty ? "Failed to create folder" : error])
+            }
+        }
+        
+        print("✅ Created folder: \(path)")
+    }
+    
+    // MARK: - Create File
+    
+    /// Creates an empty file on the Android device
+    /// - Parameter path: Full path for the new file
+    static func createFile(at path: String, content: String = "") async throws {
+        let adbPath = getADBPath()
+        let escapedPath = path.replacingOccurrences(of: "'", with: "'\\''")
+        
+        // Use touch for empty file, or echo for content
+        let command: String
+        if content.isEmpty {
+            command = "touch '\(escapedPath)'"
+        } else {
+            let escapedContent = content.replacingOccurrences(of: "'", with: "'\\''")
+            command = "echo '\(escapedContent)' > '\(escapedPath)'"
+        }
+        
+        let (code, _, error) = await Shell.runAsync(adbPath, args: ["shell", command])
+        
+        if code != 0 {
+            if error.contains("Read-only") {
+                throw NSError(domain: "ADB", code: Int(code), userInfo: [NSLocalizedDescriptionKey: "Cannot create file: File system is read-only"])
+            } else if error.contains("Permission denied") {
+                throw NSError(domain: "ADB", code: Int(code), userInfo: [NSLocalizedDescriptionKey: "Cannot create file: Permission denied"])
+            } else {
+                throw NSError(domain: "ADB", code: Int(code), userInfo: [NSLocalizedDescriptionKey: error.isEmpty ? "Failed to create file" : error])
+            }
+        }
+        
+        print("✅ Created file: \(path)")
+    }
+    
+    // MARK: - Copy File
+    
+    /// Copies a file or folder on the Android device
+    /// - Parameters:
+    ///   - sourcePath: Source path
+    ///   - destinationPath: Destination path
+    static func copyFile(from sourcePath: String, to destinationPath: String) async throws {
+        let adbPath = getADBPath()
+        let escapedSource = sourcePath.replacingOccurrences(of: "'", with: "'\\''")
+        let escapedDest = destinationPath.replacingOccurrences(of: "'", with: "'\\''")
+        
+        // Use cp -r for recursive copy (works for both files and folders)
+        let command = "cp -r '\(escapedSource)' '\(escapedDest)'"
+        
+        let (code, _, error) = await Shell.runAsync(adbPath, args: ["shell", command])
+        
+        if code != 0 {
+            if error.contains("Read-only") {
+                throw NSError(domain: "ADB", code: Int(code), userInfo: [NSLocalizedDescriptionKey: "Cannot copy: File system is read-only"])
+            } else if error.contains("Permission denied") {
+                throw NSError(domain: "ADB", code: Int(code), userInfo: [NSLocalizedDescriptionKey: "Cannot copy: Permission denied"])
+            } else if error.contains("No such file") {
+                throw NSError(domain: "ADB", code: Int(code), userInfo: [NSLocalizedDescriptionKey: "Source file not found"])
+            } else {
+                throw NSError(domain: "ADB", code: Int(code), userInfo: [NSLocalizedDescriptionKey: error.isEmpty ? "Failed to copy" : error])
+            }
+        }
+        
+        print("✅ Copied: \(sourcePath) → \(destinationPath)")
+    }
+    
+    // MARK: - Get File Info
+    
+    /// Gets detailed information about a file
+    /// - Parameter path: Path to the file
+    /// - Returns: Dictionary with file properties
+    static func getFileInfo(path: String) async throws -> [String: String] {
+        let adbPath = getADBPath()
+        let escapedPath = path.replacingOccurrences(of: "'", with: "'\\''")
+        
+        // Get file stats using stat command
+        let command = "stat -c '%s|%Y|%a|%U|%G|%F' '\(escapedPath)' 2>/dev/null || ls -ld '\(escapedPath)'"
+        
+        let (code, output, error) = await Shell.runAsync(adbPath, args: ["shell", command])
+        
+        if code != 0 || output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw NSError(domain: "ADB", code: Int(code), userInfo: [NSLocalizedDescriptionKey: error.isEmpty ? "Failed to get file info" : error])
+        }
+        
+        var info: [String: String] = [:]
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Parse stat output: size|modtime|permissions|owner|group|type
+        let parts = trimmed.split(separator: "|")
+        if parts.count >= 6 {
+            info["size"] = String(parts[0])
+            if let timestamp = Double(parts[1]) {
+                let date = Date(timeIntervalSince1970: timestamp)
+                let formatter = DateFormatter()
+                formatter.dateStyle = .medium
+                formatter.timeStyle = .medium
+                info["modified"] = formatter.string(from: date)
+            }
+            info["permissions"] = String(parts[2])
+            info["owner"] = String(parts[3])
+            info["group"] = String(parts[4])
+            info["type"] = String(parts[5])
+        }
+        
+        info["path"] = path
+        return info
+    }
 }
 
 // Your existing ADBFile model

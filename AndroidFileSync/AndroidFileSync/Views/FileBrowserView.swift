@@ -21,6 +21,8 @@ struct FileBrowserView: View, Equatable {
     let onBatchDelete: (() -> Void)?
     let onBatchDownload: (() -> Void)?
     let onBatchChangeExtension: ((String) -> Void)?
+    var onCopy: (([UnifiedFile]) -> Void)? = nil
+    var onCut: (([UnifiedFile]) -> Void)? = nil
     
     // Equatable implementation - only compare data that affects rendering
     static func == (lhs: FileBrowserView, rhs: FileBrowserView) -> Bool {
@@ -297,6 +299,18 @@ struct FileBrowserView: View, Equatable {
                 }
                 Divider()
             }
+            
+            // Copy
+            Button(isSingleSelection ? "Copy" : "Copy \(selectedCount) items") {
+                onCopy?(selectedItems)
+            }
+            
+            // Cut
+            Button(isSingleSelection ? "Cut" : "Cut \(selectedCount) items") {
+                onCut?(selectedItems)
+            }
+            
+            Divider()
             
             // Rename - only for single selection
             if isSingleSelection,

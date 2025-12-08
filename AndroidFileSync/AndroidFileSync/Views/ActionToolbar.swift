@@ -1,0 +1,276 @@
+//
+//  ActionToolbar.swift
+//  AndroidFileSync
+//
+//  Toolbar with file action buttons (New Folder, New File, Refresh, etc.)
+//
+
+import SwiftUI
+
+struct ActionToolbar: View {
+    let currentPath: String
+    @ObservedObject var fileActionManager: FileActionManager
+    let onRefresh: () -> Void
+    
+    // Dialog states
+    @State private var showNewFolderDialog = false
+    @State private var showNewFileDialog = false
+    
+    @State private var newFolderName = ""
+    @State private var newFileName = ""
+    
+    // Search state - bound to parent
+    @Binding var searchQuery: String
+    var totalFileCount: Int = 0
+    var filteredFileCount: Int = 0
+    
+    // Callbacks
+    var onSortChanged: ((SortOption) -> Void)?
+    
+    @State private var selectedSort: SortOption = .name
+    @FocusState private var isSearchFocused: Bool
+    
+    enum SortOption: String, CaseIterable {
+        case name = "Name"
+        case size = "Size"
+        case type = "Type"
+    }
+    
+    var isSearchActive: Bool {
+        !searchQuery.isEmpty
+    }
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            // New Folder button
+            Button {
+                newFolderName = "New Folder"
+                showNewFolderDialog = true
+            } label: {
+                Label("New Folder", systemImage: "folder.badge.plus")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .help("Create new folder (⌘⇧N)")
+            .keyboardShortcut("n", modifiers: [.command, .shift])
+            
+            // New File button
+            Button {
+                newFileName = "untitled.txt"
+                showNewFileDialog = true
+            } label: {
+                Label("New File", systemImage: "doc.badge.plus")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .help("Create new file")
+            
+            Divider()
+                .frame(height: 16)
+            
+            // Clipboard indicator
+            if !fileActionManager.clipboard.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: fileActionManager.clipboardOperation == .cut ? "scissors" : "doc.on.clipboard")
+                        .font(.caption)
+                        .foregroundColor(.blue)
+                    Text("\(fileActionManager.clipboard.count)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    // Paste button
+                    Button {
+                        Task {
+                            try? await fileActionManager.paste(to: currentPath)
+                            onRefresh()
+                        }
+                    } label: {
+                        Label("Paste", systemImage: "doc.on.doc")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.borderless)
+                    .keyboardShortcut("v", modifiers: .command)
+                    
+                    // Clear clipboard
+                    Button {
+                        fileActionManager.clearClipboard()
+                    } label: {
+                        Image(systemName: "xmark.circle")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear clipboard")
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.blue.opacity(0.15))
+                .cornerRadius(6)
+                
+                Divider()
+                    .frame(height: 16)
+            }
+            
+            Spacer()
+            
+            // Search Field - Always visible, better styled
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12))
+                    .foregroundColor(isSearchActive ? .accentColor : .secondary)
+                
+                TextField("Search files...", text: $searchQuery)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .frame(minWidth: 120, maxWidth: 200)
+                    .focused($isSearchFocused)
+                
+                // Clear button or result count
+                if isSearchActive {
+                    HStack(spacing: 4) {
+                        // Show filtered count
+                        Text("\(filteredFileCount)/\(totalFileCount)")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 2)
+                            .background(Color.secondary.opacity(0.2))
+                            .cornerRadius(4)
+                        
+                        // Clear button
+                        Button {
+                            searchQuery = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Clear search (Esc)")
+                    }
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(NSColor.textBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(isSearchFocused ? Color.accentColor : Color.clear, lineWidth: 1)
+                    )
+            )
+            .onTapGesture {
+                isSearchFocused = true
+            }
+            
+            // Sort menu
+            Menu {
+                ForEach(SortOption.allCases, id: \.self) { option in
+                    Button {
+                        selectedSort = option
+                        onSortChanged?(option)
+                    } label: {
+                        HStack {
+                            Text(option.rawValue)
+                            if selectedSort == option {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 2) {
+                    Image(systemName: "arrow.up.arrow.down")
+                    Text(selectedSort.rawValue)
+                        .font(.caption)
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .frame(width: 70)
+            .help("Sort by")
+            
+            // Refresh button
+            Button {
+                onRefresh()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .buttonStyle(.borderless)
+            .help("Refresh (⌘R)")
+            .keyboardShortcut("r", modifiers: .command)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.6))
+        // Keyboard shortcut to focus search
+        .onAppear {
+            NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "f" {
+                    isSearchFocused = true
+                    return nil // Consume the event
+                }
+                // ESC to clear search
+                if event.keyCode == 53 && isSearchActive {
+                    searchQuery = ""
+                    isSearchFocused = false
+                    return nil
+                }
+                return event
+            }
+        }
+        // New Folder dialog
+        .alert("New Folder", isPresented: $showNewFolderDialog) {
+            TextField("Folder name", text: $newFolderName)
+            Button("Cancel", role: .cancel) {
+                newFolderName = ""
+            }
+            Button("Create") {
+                if !newFolderName.isEmpty {
+                    Task {
+                        try? await fileActionManager.createFolder(at: currentPath, name: newFolderName)
+                        onRefresh()
+                    }
+                }
+                newFolderName = ""
+            }
+        } message: {
+            Text("Enter a name for the new folder")
+        }
+        // New File dialog
+        .alert("New File", isPresented: $showNewFileDialog) {
+            TextField("File name", text: $newFileName)
+            Button("Cancel", role: .cancel) {
+                newFileName = ""
+            }
+            Button("Create") {
+                if !newFileName.isEmpty {
+                    Task {
+                        try? await fileActionManager.createFile(at: currentPath, name: newFileName)
+                        onRefresh()
+                    }
+                }
+                newFileName = ""
+            }
+        } message: {
+            Text("Enter a name for the new file")
+        }
+    }
+}
+
+#Preview {
+    struct PreviewWrapper: View {
+        @State var search = ""
+        var body: some View {
+            ActionToolbar(
+                currentPath: "/sdcard",
+                fileActionManager: FileActionManager(),
+                onRefresh: {},
+                searchQuery: $search,
+                totalFileCount: 50,
+                filteredFileCount: 12
+            )
+        }
+    }
+    return PreviewWrapper()
+}

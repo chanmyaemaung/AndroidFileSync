@@ -217,6 +217,41 @@ struct ContentView: View {
     
     // Trash view state
     @State private var showTrashView = false
+    
+    // Search and sort state
+    @State private var searchQuery = ""
+    @State private var sortOption: ActionToolbar.SortOption = .name
+    
+    // Computed filtered files
+    private var filteredFiles: [UnifiedFile] {
+        var result = files
+        
+        // Apply search filter
+        if !searchQuery.isEmpty {
+            result = result.filter { $0.name.localizedCaseInsensitiveContains(searchQuery) }
+        }
+        
+        // Apply sort
+        switch sortOption {
+        case .name:
+            result.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        case .size:
+            result.sort { $0.size > $1.size }
+        case .type:
+            result.sort { 
+                if $0.isDirectory != $1.isDirectory {
+                    return $0.isDirectory // Folders first
+                }
+                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
+        }
+        
+        return result
+    }
+    
+    private func sortFiles(by option: ActionToolbar.SortOption) {
+        sortOption = option
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -235,26 +270,42 @@ struct ContentView: View {
                         onOpenTrash: { showTrashView = true }
                     )
                     
-                    // CORRECTED INITIALIZER
-                    FileBrowserView(
-                        files: files,
-                        currentPath: currentPath,
-                        isLoading: isLoading,
-                        canGoBack: !pathHistory.isEmpty,
-                        selectedFiles: $selectedFiles,
-                        onNavigate: navigateTo,
-                        onGoBack: navigateBack,
-                        onDownload: handleDownload,
-                        onUpload: handleUpload,
-                        onDelete: handleDelete,
-                        onRename: handleRename,
-                        onBatchDelete: handleBatchDelete,
-                        onBatchDownload: handleBatchDownload,
-                        onBatchChangeExtension: { ext in handleBatchChangeExtension(ext) }
-                    )
-                    .equatable()  // Prevent unnecessary redraws
+                    VStack(spacing: 0) {
+                        // Action Toolbar
+                        ActionToolbar(
+                            currentPath: currentPath,
+                            fileActionManager: fileActionManager,
+                            onRefresh: { Task { await loadFiles() } },
+                            searchQuery: $searchQuery,
+                            totalFileCount: files.count,
+                            filteredFileCount: filteredFiles.count,
+                            onSortChanged: { option in
+                                sortFiles(by: option)
+                            }
+                        )
+                        Divider()
+                        
+                        // File Browser
+                        FileBrowserView(
+                            files: filteredFiles,
+                            currentPath: currentPath,
+                            isLoading: isLoading,
+                            canGoBack: !pathHistory.isEmpty,
+                            selectedFiles: $selectedFiles,
+                            onNavigate: navigateTo,
+                            onGoBack: navigateBack,
+                            onDownload: handleDownload,
+                            onUpload: handleUpload,
+                            onDelete: handleDelete,
+                            onRename: handleRename,
+                            onBatchDelete: handleBatchDelete,
+                            onBatchDownload: handleBatchDownload,
+                            onBatchChangeExtension: { ext in handleBatchChangeExtension(ext) },
+                            onCopy: { files in fileActionManager.copyToClipboard(files) },
+                            onCut: { files in fileActionManager.cutToClipboard(files) }
+                        )
+                    }
                 }
-                .id("browser_\(currentPath)")  // Isolate from sibling view updates
             } else {
                 // Your EmptyStateView or a loading view
                 EmptyStateView()

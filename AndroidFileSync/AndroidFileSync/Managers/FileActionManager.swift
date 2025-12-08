@@ -252,6 +252,152 @@ class FileActionManager: ObservableObject {
         }
     }
     
+    // MARK: - Create Folder
+    
+    /// Creates a new folder on the Android device
+    func createFolder(at path: String, name: String) async throws {
+        let fullPath = path.hasSuffix("/") ? "\(path)\(name)" : "\(path)/\(name)"
+        
+        await MainActor.run {
+            isPerformingAction = true
+            currentAction = "Creating folder \(name)..."
+            lastError = nil
+        }
+        
+        do {
+            try await ADBManager.createFolder(at: fullPath)
+            
+            await MainActor.run {
+                isPerformingAction = false
+                currentAction = ""
+            }
+            
+            print("✅ Folder created: \(name)")
+        } catch {
+            await MainActor.run {
+                isPerformingAction = false
+                currentAction = ""
+                lastError = error.localizedDescription
+            }
+            throw error
+        }
+    }
+    
+    // MARK: - Create File
+    
+    /// Creates a new file on the Android device
+    func createFile(at path: String, name: String, content: String = "") async throws {
+        let fullPath = path.hasSuffix("/") ? "\(path)\(name)" : "\(path)/\(name)"
+        
+        await MainActor.run {
+            isPerformingAction = true
+            currentAction = "Creating file \(name)..."
+            lastError = nil
+        }
+        
+        do {
+            try await ADBManager.createFile(at: fullPath, content: content)
+            
+            await MainActor.run {
+                isPerformingAction = false
+                currentAction = ""
+            }
+            
+            print("✅ File created: \(name)")
+        } catch {
+            await MainActor.run {
+                isPerformingAction = false
+                currentAction = ""
+                lastError = error.localizedDescription
+            }
+            throw error
+        }
+    }
+    
+    // MARK: - Clipboard (Copy/Paste)
+    
+    @Published var clipboard: [UnifiedFile] = []
+    @Published var clipboardOperation: ClipboardOperation = .none
+    
+    enum ClipboardOperation {
+        case none
+        case copy
+        case cut
+    }
+    
+    /// Copies files to clipboard
+    func copyToClipboard(_ files: [UnifiedFile]) {
+        clipboard = files
+        clipboardOperation = .copy
+        print("📋 Copied \(files.count) items to clipboard")
+    }
+    
+    /// Cuts files to clipboard
+    func cutToClipboard(_ files: [UnifiedFile]) {
+        clipboard = files
+        clipboardOperation = .cut
+        print("✂️ Cut \(files.count) items to clipboard")
+    }
+    
+    /// Pastes files from clipboard to destination
+    func paste(to destinationPath: String) async throws {
+        guard !clipboard.isEmpty else { return }
+        
+        let itemCount = clipboard.count
+        let operation = clipboardOperation
+        
+        await MainActor.run {
+            isPerformingAction = true
+            currentAction = "Pasting \(itemCount) items..."
+            lastError = nil
+        }
+        
+        var successCount = 0
+        var failedItems: [String] = []
+        
+        for file in clipboard {
+            let destinationFile = destinationPath.hasSuffix("/") 
+                ? "\(destinationPath)\(file.name)" 
+                : "\(destinationPath)/\(file.name)"
+            
+            do {
+                if operation == .cut {
+                    // Move operation
+                    try await ADBManager.renameFile(oldPath: file.path, newPath: destinationFile)
+                } else {
+                    // Copy operation
+                    try await ADBManager.copyFile(from: file.path, to: destinationFile)
+                }
+                successCount += 1
+            } catch {
+                failedItems.append(file.name)
+            }
+        }
+        
+        await MainActor.run {
+            isPerformingAction = false
+            currentAction = ""
+            
+            // Clear clipboard if it was a cut operation
+            if operation == .cut {
+                clipboard.removeAll()
+                clipboardOperation = .none
+            }
+            
+            if !failedItems.isEmpty {
+                lastError = "Failed to paste: \(failedItems.joined(separator: ", "))"
+            }
+        }
+        
+        print("✅ Pasted \(successCount)/\(itemCount) items")
+    }
+    
+    /// Clears the clipboard
+    func clearClipboard() {
+        clipboard.removeAll()
+        clipboardOperation = .none
+    }
+    
     // MARK: - Error Handling
     
     /// Clears the last error
