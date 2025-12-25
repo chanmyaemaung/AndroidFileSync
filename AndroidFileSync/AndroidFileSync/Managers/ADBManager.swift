@@ -251,7 +251,7 @@ class ADBManager {
                                 }
                             }
                             
-                            try? await Task.sleep(nanoseconds: 500_000_000) // 500ms - reduce ADB contention
+                            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
                         }
                     }
                     
@@ -276,10 +276,104 @@ class ADBManager {
     static func pushFileWithProgress(
         localPath: String,
         devicePath: String,
+        totalBytes: UInt64,
+        cancellationCheck: @escaping () -> Bool = { false }
+    ) -> AsyncStream<(UInt64, Double)> {
+        return AsyncStream { continuation in
+            let adbPath = getADBPath()
+            
+            DispatchQueue.global(qos: .userInitiated).async {
+                // Create and manage the process directly for cancellation support
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: adbPath)
+                process.arguments = ["push", localPath, devicePath]
+                process.standardOutput = Pipe()
+                process.standardError = Pipe()
+                
+                do {
+                    try process.run()
+                    let pid = process.processIdentifier
+                    print("🔍 Upload process started with PID \(pid)")
+                    
+                    // Start cancellation monitor AFTER process is running
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        while process.isRunning {
+                            if cancellationCheck() {
+                                print("🛑 Upload: Cancellation detected! Killing PID \(pid)...")
+                                kill(pid, SIGKILL)
+                                break
+                            }
+                            Thread.sleep(forTimeInterval: 0.1) // 100ms
+                        }
+                        print("🔍 Cancellation monitor exited")
+                    }
+                    
+                    // Start progress polling AFTER process is running
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        var lastSize: UInt64 = 0
+                        var lastCheck = Date()
+                        
+                        // Wait a moment for transfer to start
+                        Thread.sleep(forTimeInterval: 0.5)
+                        
+                        while process.isRunning && !cancellationCheck() {
+                            // Get remote file size using stat (synchronous for simplicity)
+                            let (statCode, statOutput, _) = Shell.run(
+                                adbPath,
+                                args: ["shell", "stat", "-c%s", devicePath]
+                            )
+                            
+                            if statCode == 0, let currentSize = UInt64(statOutput.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                                let now = Date()
+                                let timeDiff = now.timeIntervalSince(lastCheck)
+                                
+                                if currentSize > lastSize && timeDiff >= 0.1 {
+                                    let bytesDiff = currentSize - lastSize
+                                    let speed = Double(bytesDiff) / timeDiff / (1024 * 1024) // MB/s
+                                    
+                                    print("📊 Upload Progress: \(currentSize)/\(totalBytes) bytes, \(String(format: "%.1f", speed)) MB/s")
+                                    continuation.yield((currentSize, speed))
+                                    
+                                    lastSize = currentSize
+                                    lastCheck = now
+                                }
+                            }
+                            
+                            // Poll every 1 second
+                            Thread.sleep(forTimeInterval: 1.0)
+                        }
+                        print("🔍 Progress polling exited")
+                    }
+                    
+                    // Wait for process to complete
+                    process.waitUntilExit()
+                    
+                    if process.terminationStatus == 0 {
+                        print("✅ ADB Push completed successfully")
+                    } else {
+                        print("❌ ADB Push exited with code \(process.terminationStatus)")
+                    }
+                    
+                } catch {
+                    print("❌ ADB Push Error: \(error)")
+                }
+                
+                // Send final update only if not cancelled
+                if !cancellationCheck() {
+                    continuation.yield((totalBytes, 0))
+                }
+                continuation.finish()
+            }
+        }
+    }
+    
+    // Legacy version for backward compatibility
+    static func pushFileWithProgress(
+        localPath: String,
+        devicePath: String,
         progressCallback: @escaping (UInt64, Double) -> Void,
         cancellationCheck: @escaping () -> Bool = { false }
     ) async throws {
-        // For uploads, we still rely on ADB output parsing as we can't easily poll remote file size
         try await transferFileWithProgress(
             command: "push",
             source: localPath,
@@ -312,6 +406,9 @@ class ADBManager {
                     return
                 }
                 
+                // Debug: Log raw output
+                print("📊 ADB Output: \(outputChunk.replacingOccurrences(of: "\n", with: "\\n"))")
+                
                 buffer += outputChunk
                 if buffer.count > 300 {
                     buffer = String(buffer.suffix(300))
@@ -325,6 +422,7 @@ class ADBManager {
                     ).joined()
                     
                     if let percent = Double(digits) {
+                        print("📊 Parsed percent: \(percent)%")
                         if percent > lastPercent || Date().timeIntervalSince(lastUpdate) > 0.1 {
                              let now = Date()
                              let dt = now.timeIntervalSince(lastUpdate)
@@ -338,6 +436,7 @@ class ADBManager {
                              lastUpdate = now
                              lastPercent = percent
                              
+                             print("📊 Calling callback with percent: \(percent), speed: \(estimatedSpeed)")
                              callback(UInt64(percent), estimatedSpeed)
                         }
                     }

@@ -1,6 +1,8 @@
 //
 //  UploadManager.swift
-//  (CORRECTED - Single Argument Callback)
+//  AndroidFileSync
+//
+//  Uses AsyncStream polling for progress (like DownloadManager)
 //
 import Foundation
 internal import Combine
@@ -8,9 +10,16 @@ internal import Combine
 class UploadManager: ObservableObject {
     @Published var activeUploads: [String: UploadProgress] = [:]
     
+    // Thread-safe storage for progress updates from background
+    private let progressLock = NSLock()
+    private var backgroundProgress: [String: (bytes: UInt64, speed: Double)] = [:]
+    
     // Cancellation flags - thread-safe with lock
     private var cancellationFlags: [String: Bool] = [:]
     private let flagLock = NSLock()
+    
+    // Timer for periodic UI updates - only runs when uploads are active
+    private var updateTimer: Timer?
     
     struct UploadProgress: Identifiable {
         let id = UUID()
@@ -39,6 +48,39 @@ class UploadManager: ObservableObject {
             }
             return ""
         }
+    }
+    
+    // MARK: - Timer Management
+    
+    private func startTimerIfNeeded() {
+        guard updateTimer == nil else { return }
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            self?.updateUIFromBackground()
+        }
+    }
+    
+    private func stopTimerIfNeeded() {
+        guard activeUploads.isEmpty else { return }
+        updateTimer?.invalidate()
+        updateTimer = nil
+    }
+    
+    private func updateUIFromBackground() {
+        progressLock.lock()
+        let updates = backgroundProgress
+        progressLock.unlock()
+        
+        for (localPath, (bytes, speed)) in updates {
+            if var upload = activeUploads[localPath] {
+                upload.bytesTransferred = bytes
+                upload.transferSpeed = speed
+                activeUploads[localPath] = upload
+            }
+        }
+    }
+    
+    deinit {
+        updateTimer?.invalidate()
     }
     
     // MARK: - Cancellation
@@ -70,6 +112,12 @@ class UploadManager: ObservableObject {
         // Remove from UI after brief delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             self?.activeUploads.removeValue(forKey: localPath)
+            self?.stopTimerIfNeeded()
+            
+            // Clean up background progress
+            self?.progressLock.lock()
+            self?.backgroundProgress.removeValue(forKey: localPath)
+            self?.progressLock.unlock()
             
             // Clean up flag
             self?.flagLock.lock()
@@ -93,81 +141,76 @@ class UploadManager: ObservableObject {
             safeDevicePath = devicePath + "/" + safeFileName
         }
         
-        var progress = UploadProgress(
+        let progress = UploadProgress(
             fileName: safeFileName,
             localPath: localPath,
             devicePath: safeDevicePath,
             totalBytes: fileSize
         )
         
-        activeUploads[localPath] = progress
+        // Initialize on main thread
+        await MainActor.run {
+            activeUploads[localPath] = progress
+            startTimerIfNeeded()
+        }
         
         // Reset cancellation flag
         setCancelled(localPath: localPath, value: false)
         
-        do {
-            print("📤 Uploading: \(safeFileName) (\(formatBytes(fileSize)))")
-            
-            try await ADBManager.pushFileWithProgress(
-                localPath: localPath,
-                devicePath: safeDevicePath,
-                progressCallback: { [weak self] percentOrBytes, speed in
-                    guard let self = self else { return }
-                    
-                    // Check for cancellation
-                    guard !self.isCancelled(localPath: localPath) else { return }
-                    
-                    Task { @MainActor in
-                        guard var currentProgress = self.activeUploads[localPath] else { return }
-                        
-                        if percentOrBytes <= 100 {
-                            currentProgress.bytesTransferred =
-                                UInt64(Double(fileSize) * Double(percentOrBytes) / 100.0)
-                        } else {
-                            currentProgress.bytesTransferred = percentOrBytes
-                        }
-                        
-                        currentProgress.transferSpeed = speed
-                        self.activeUploads[localPath] = currentProgress
-                    }
-                },
-                cancellationCheck: { [weak self] in
-                    self?.isCancelled(localPath: localPath) ?? false
-                }
-            )
-            
-            // Check for cancellation after transfer
+        print("📤 Uploading: \(safeFileName) (\(formatBytes(fileSize)))")
+        
+        // Use the new AsyncStream-based API (like downloads)
+        let progressStream = ADBManager.pushFileWithProgress(
+            localPath: localPath,
+            devicePath: safeDevicePath,
+            totalBytes: fileSize,
+            cancellationCheck: { [weak self] in
+                self?.isCancelled(localPath: localPath) ?? false
+            }
+        )
+        
+        // Consume stream and update background storage
+        for await (bytesTransferred, speed) in progressStream {
+            // Check for cancellation
             if isCancelled(localPath: localPath) {
-                print("🛑 Upload was cancelled: \(safeFileName)")
+                print("🛑 Upload cancelled: \(safeFileName)")
                 return
             }
             
+            progressLock.lock()
+            backgroundProgress[localPath] = (bytesTransferred, speed)
+            progressLock.unlock()
+        }
+        
+        // Check for cancellation
+        if isCancelled(localPath: localPath) {
+            print("🛑 Upload was cancelled: \(safeFileName)")
+            return
+        }
+        
+        // Clear background progress
+        progressLock.lock()
+        backgroundProgress.removeValue(forKey: localPath)
+        progressLock.unlock()
+        
+        // Mark complete on main thread
+        await MainActor.run {
             if var upload = activeUploads[localPath] {
                 upload.isComplete = true
                 upload.bytesTransferred = fileSize
                 upload.transferSpeed = 0
                 activeUploads[localPath] = upload
             }
-            
-            print("✅ Upload complete: \(safeFileName)")
-            
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        
+        print("✅ Upload complete: \(safeFileName)")
+        
+        // Show 100% briefly
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        
+        await MainActor.run {
             activeUploads.removeValue(forKey: localPath)
-            
-        } catch {
-            // Check if was cancelled
-            if isCancelled(localPath: localPath) {
-                print("🛑 Upload cancelled: \(safeFileName)")
-                return
-            }
-            
-            print("❌ Upload Error: \(error.localizedDescription)")
-            
-            if var upload = activeUploads[localPath] {
-                upload.error = error.localizedDescription
-                activeUploads[localPath] = upload
-            }
-            throw error
+            stopTimerIfNeeded()
         }
         
         // Clean up flag
