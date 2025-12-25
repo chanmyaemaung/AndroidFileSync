@@ -406,9 +406,7 @@ class ADBManager {
                     return
                 }
                 
-                // Debug: Log raw output
-                print("📊 ADB Output: \(outputChunk.replacingOccurrences(of: "\n", with: "\\n"))")
-                
+
                 buffer += outputChunk
                 if buffer.count > 300 {
                     buffer = String(buffer.suffix(300))
@@ -422,7 +420,6 @@ class ADBManager {
                     ).joined()
                     
                     if let percent = Double(digits) {
-                        print("📊 Parsed percent: \(percent)%")
                         if percent > lastPercent || Date().timeIntervalSince(lastUpdate) > 0.1 {
                              let now = Date()
                              let dt = now.timeIntervalSince(lastUpdate)
@@ -436,7 +433,6 @@ class ADBManager {
                              lastUpdate = now
                              lastPercent = percent
                              
-                             print("📊 Calling callback with percent: \(percent), speed: \(estimatedSpeed)")
                              callback(UInt64(percent), estimatedSpeed)
                         }
                     }

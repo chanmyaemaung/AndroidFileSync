@@ -54,7 +54,7 @@ class UploadManager: ObservableObject {
     
     private func startTimerIfNeeded() {
         guard updateTimer == nil else { return }
-        updateTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.updateUIFromBackground()
         }
     }
