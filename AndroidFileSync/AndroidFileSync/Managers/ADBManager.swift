@@ -102,8 +102,9 @@ class ADBManager {
         var files: [ADBFile] = []
         files.reserveCapacity(fileNames.count)
         
-        // Use find to get file types efficiently in a single command
-        let findCommand = "find '\(path)' -maxdepth 1 -mindepth 1 \\( -type d -printf 'd %f\\n' -o -type f -printf 'f %s %f\\n' -o -printf '? %f\\n' \\) 2>/dev/null"
+        // Use find to get file types and modification times efficiently in a single command
+        // Format: type timestamp size filename (timestamp is Unix epoch)
+        let findCommand = "find '\(path)' -maxdepth 1 -mindepth 1 \\( -type d -printf 'd %T@ %f\\n' -o -type f -printf 'f %T@ %s %f\\n' -o -printf '? %T@ %f\\n' \\) 2>/dev/null"
         
         let (findCode, findOutput, _) = await Shell.runAsyncWithTimeout(
             adbPath,
@@ -112,7 +113,7 @@ class ADBManager {
         )
         
         if findCode == 0 && !findOutput.isEmpty {
-            // Parse find output: "d dirname" or "f size filename"
+            // Parse find output: "d timestamp dirname" or "f timestamp size filename"
             findOutput.enumerateLines { line, _ in
                 guard line.count >= 3 else { return }
                 
@@ -120,27 +121,39 @@ class ADBManager {
                 let rest = String(line.dropFirst(2))
                 
                 if typeChar == "d" {
-                    // Directory: "d name"
-                    let name = rest
-                    guard !name.isEmpty && name != "." && name != ".." else { return }
-                    let fullPath = path.hasSuffix("/") ? path + name : path + "/" + name
-                    files.append(ADBFile(name: name, path: fullPath, isDirectory: true, size: 0, modificationDate: nil))
-                } else if typeChar == "f" {
-                    // File: "f size name"
+                    // Directory: "d timestamp name"
                     let parts = rest.split(separator: " ", maxSplits: 1)
                     if parts.count >= 2 {
-                        let size = UInt64(parts[0]) ?? 0
+                        let timestamp = Double(parts[0])
+                        let modDate = timestamp.map { Date(timeIntervalSince1970: $0) }
                         let name = String(parts[1])
+                        guard !name.isEmpty && name != "." && name != ".." else { return }
+                        let fullPath = path.hasSuffix("/") ? path + name : path + "/" + name
+                        files.append(ADBFile(name: name, path: fullPath, isDirectory: true, size: 0, modificationDate: modDate))
+                    }
+                } else if typeChar == "f" {
+                    // File: "f timestamp size name"
+                    let parts = rest.split(separator: " ", maxSplits: 2)
+                    if parts.count >= 3 {
+                        let timestamp = Double(parts[0])
+                        let modDate = timestamp.map { Date(timeIntervalSince1970: $0) }
+                        let size = UInt64(parts[1]) ?? 0
+                        let name = String(parts[2])
                         guard !name.isEmpty else { return }
                         let fullPath = path.hasSuffix("/") ? path + name : path + "/" + name
-                        files.append(ADBFile(name: name, path: fullPath, isDirectory: false, size: size, modificationDate: nil))
+                        files.append(ADBFile(name: name, path: fullPath, isDirectory: false, size: size, modificationDate: modDate))
                     }
                 } else {
                     // Unknown type, treat as file
-                    let name = rest
-                    guard !name.isEmpty && name != "." && name != ".." else { return }
-                    let fullPath = path.hasSuffix("/") ? path + name : path + "/" + name
-                    files.append(ADBFile(name: name, path: fullPath, isDirectory: false, size: 0, modificationDate: nil))
+                    let parts = rest.split(separator: " ", maxSplits: 1)
+                    if parts.count >= 2 {
+                        let timestamp = Double(parts[0])
+                        let modDate = timestamp.map { Date(timeIntervalSince1970: $0) }
+                        let name = String(parts[1])
+                        guard !name.isEmpty && name != "." && name != ".." else { return }
+                        let fullPath = path.hasSuffix("/") ? path + name : path + "/" + name
+                        files.append(ADBFile(name: name, path: fullPath, isDirectory: false, size: 0, modificationDate: modDate))
+                    }
                 }
             }
             return files
