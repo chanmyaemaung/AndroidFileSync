@@ -9,6 +9,11 @@ class DownloadManager: ObservableObject {
     // Store progress for each file being downloaded (Key: devicePath)
     @Published var activeDownloads: [String: DownloadProgress] = [:]
     
+    // Batch tracking for showing "X of Y completed"
+    @Published var batchTotal: Int = 0
+    @Published var batchCompleted: Int = 0
+    @Published var isBatchDownloading: Bool = false
+    
     // Store active tasks for cancellation (Key: devicePath)
     private var activeTasks: [String: Task<Void, Never>] = [:]
     private let taskLock = NSLock()
@@ -210,5 +215,147 @@ class DownloadManager: ObservableObject {
         taskLock.lock()
         activeTasks.removeValue(forKey: devicePath)
         taskLock.unlock()
+    }
+    
+    // MARK: - Parallel Download Support
+    
+    /// Starts a download without waiting for completion (fire-and-forget for parallel execution)
+    /// - Returns: The Task that can be used to track or cancel the download
+    @discardableResult
+    func startDownload(
+        devicePath: String,
+        fileName: String,
+        fileSize: UInt64,
+        to localPath: String
+    ) -> Task<Void, Never> {
+        
+        // Initialize progress
+        let progress = DownloadProgress(
+            fileName: fileName,
+            devicePath: devicePath,
+            localPath: localPath,
+            totalBytes: fileSize
+        )
+        
+        // Add to UI on main thread and start timer
+        Task { @MainActor in
+            activeDownloads[devicePath] = progress
+            startTimerIfNeeded()
+        }
+        
+        // Create and store the task for cancellation
+        let downloadTask = Task.detached { [weak self] in
+            guard let self = self else { return }
+            
+            let progressStream = ADBManager.pullFileWithProgress(
+                devicePath: devicePath,
+                localPath: localPath
+            )
+            
+            // Consume stream and update background storage
+            for await (bytesTransferred, speed) in progressStream {
+                // Check for cancellation
+                if Task.isCancelled {
+                    print("🛑 Download cancelled: \(fileName)")
+                    return
+                }
+                
+                self.progressLock.lock()
+                self.backgroundProgress[devicePath] = (bytesTransferred, speed)
+                self.progressLock.unlock()
+            }
+            
+            // Check for cancellation before marking complete
+            if Task.isCancelled {
+                return
+            }
+            
+            // Clear background progress
+            self.progressLock.lock()
+            self.backgroundProgress.removeValue(forKey: devicePath)
+            self.progressLock.unlock()
+            
+            // Mark complete on main thread
+            await MainActor.run {
+                self.activeDownloads[devicePath]?.isComplete = true
+                self.activeDownloads[devicePath]?.bytesTransferred = fileSize
+                self.activeDownloads[devicePath]?.transferSpeed = 0
+            }
+            
+            // Show 100% briefly
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            
+            await MainActor.run {
+                self.activeDownloads.removeValue(forKey: devicePath)
+                self.stopTimerIfNeeded()
+            }
+            
+            // Clean up task reference
+            self.taskLock.lock()
+            self.activeTasks.removeValue(forKey: devicePath)
+            self.taskLock.unlock()
+        }
+        
+        // Store the task for cancellation
+        taskLock.lock()
+        activeTasks[devicePath] = downloadTask
+        taskLock.unlock()
+        
+        return downloadTask
+    }
+    
+    /// Downloads multiple files in parallel with a sliding window approach
+    /// - Parameters:
+    ///   - files: Array of tuples containing (devicePath, fileName, fileSize, localPath)
+    ///   - maxConcurrent: Maximum number of concurrent downloads (default: 5)
+    ///                    As soon as one download completes, the next file starts immediately
+    func downloadMultipleFiles(
+        files: [(devicePath: String, fileName: String, fileSize: UInt64, localPath: String)],
+        maxConcurrent: Int = 5
+    ) async {
+        guard !files.isEmpty else { return }
+        
+        print("📥 Starting parallel download of \(files.count) files (max concurrent: \(maxConcurrent))")
+        
+        await withTaskGroup(of: Void.self) { group in
+            var runningCount = 0
+            var fileIndex = 0
+            
+            while fileIndex < files.count {
+                // Fill up to maxConcurrent slots
+                while runningCount < maxConcurrent && fileIndex < files.count {
+                    let file = files[fileIndex]
+                    fileIndex += 1
+                    runningCount += 1
+                    
+                    print("📥 [\(fileIndex)/\(files.count)] Starting: \(file.fileName)")
+                    
+                    group.addTask {
+                        do {
+                            try await self.downloadFile(
+                                devicePath: file.devicePath,
+                                fileName: file.fileName,
+                                fileSize: file.fileSize,
+                                to: file.localPath
+                            )
+                        } catch {
+                            print("❌ Failed to download \(file.fileName): \(error)")
+                        }
+                    }
+                }
+                
+                // Wait for ONE download to complete, then immediately start the next
+                // This ensures we always maintain maxConcurrent active downloads
+                if runningCount >= maxConcurrent && fileIndex < files.count {
+                    await group.next()
+                    runningCount -= 1
+                }
+            }
+            
+            // Wait for remaining downloads to complete
+            await group.waitForAll()
+        }
+        
+        print("✅ All \(files.count) downloads completed")
     }
 }

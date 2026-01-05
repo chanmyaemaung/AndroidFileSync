@@ -367,23 +367,21 @@ struct ContentView: View {
         openPanel.begin { response in
             guard response == .OK, let directory = openPanel.url else { return }
             
+            // Prepare files for parallel download
+            let downloadItems = filesToDownload.map { file in
+                (
+                    devicePath: file.path,
+                    fileName: file.name,
+                    fileSize: file.size,
+                    localPath: directory.appendingPathComponent(file.name).path
+                )
+            }
+            
             Task {
-                for file in filesToDownload {
-                    let destinationPath = directory.appendingPathComponent(file.name).path
-                    
-                    do {
-                        try await downloadManager.downloadFile(
-                            devicePath: file.path,
-                            fileName: file.name,
-                            fileSize: file.size,
-                            to: destinationPath
-                        )
-                    } catch {
-                        print("❌ Failed to download \(file.name): \(error)")
-                    }
-                }
+                // Use the new parallel download method
+                await downloadManager.downloadMultipleFiles(files: downloadItems)
                 
-                // Clear selection after download
+                // Clear selection after all downloads complete
                 await MainActor.run {
                     selectedFiles.removeAll()
                 }

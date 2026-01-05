@@ -6,21 +6,6 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		453BAF1E2EC66C1D008AABAB /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 453BAF1D2EC66C1D008AABAB /* UniformTypeIdentifiers.framework */; };
-		453BAF2A2EC66C1D008AABAB /* AndroidFileProvider.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 453BAF1B2EC66C1C008AABAB /* AndroidFileProvider.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-/* End PBXBuildFile section */
-
-/* Begin PBXContainerItemProxy section */
-		453BAF282EC66C1D008AABAB /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 453BAF012EC66BC4008AABAB /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 453BAF1A2EC66C1C008AABAB;
-			remoteInfo = AndroidFileProvider;
-		};
-/* End PBXContainerItemProxy section */
-
 /* Begin PBXCopyFilesBuildPhase section */
 		453BAF2F2EC66C1D008AABAB /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
@@ -28,7 +13,6 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				453BAF2A2EC66C1D008AABAB /* AndroidFileProvider.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -37,18 +21,10 @@
 
 /* Begin PBXFileReference section */
 		453BAF092EC66BC4008AABAB /* AndroidFileSync.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AndroidFileSync.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		453BAF1B2EC66C1C008AABAB /* AndroidFileProvider.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AndroidFileProvider.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		453BAF1D2EC66C1D008AABAB /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		453BAF2B2EC66C1D008AABAB /* Exceptions for "AndroidFileProvider" folder in "AndroidFileProvider" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = 453BAF1A2EC66C1C008AABAB /* AndroidFileProvider */;
-		};
 		4581BF0A2ED0772200D2F9EC /* Exceptions for "AndroidFileSync" folder in "AndroidFileSync" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -82,55 +58,13 @@
 			);
 			target = 453BAF082EC66BC4008AABAB /* AndroidFileSync */;
 		};
-		4581BF0B2ED0772200D2F9EC /* Exceptions for "AndroidFileSync" folder in "AndroidFileProvider" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				AndroidFileSyncApp.swift,
-				Assets.xcassets,
-				ContentView.swift,
-				Managers/ADBManager.swift,
-				Managers/DeviceManager.swift,
-				Managers/DownloadManager.swift,
-				Managers/FileActionManager.swift,
-				Managers/UploadManager.swift,
-				Models/Models.swift,
-				Utilities/DropCoordinator.swift,
-				Utilities/FileDropDelegate.swift,
-				Utilities/FileNameHelper.swift,
-				Utilities/Logger.swift,
-				Utilities/QuickAccessItem.swift,
-				Utilities/Settings.swift,
-				Utilities/Shell.swift,
-				Utilities/SidebarView.swift,
-				Utilities/ThrottledPublisher.swift,
-				Views/ActionToolbar.swift,
-				Views/EmptyStateView.swift,
-				Views/FileBrowserView.swift,
-				Views/FileRowView.swift,
-				Views/HeaderView.swift,
-				Views/SelectionToolbar.swift,
-				Views/TransferProgressContainer.swift,
-				Views/TransferProgressView.swift,
-				Views/TrashView.swift,
-			);
-			target = 453BAF1A2EC66C1C008AABAB /* AndroidFileProvider */;
-		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		453BAF1F2EC66C1D008AABAB /* AndroidFileProvider */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				453BAF2B2EC66C1D008AABAB /* Exceptions for "AndroidFileProvider" folder in "AndroidFileProvider" target */,
-			);
-			path = AndroidFileProvider;
-			sourceTree = "<group>";
-		};
 		4581BF032ED0772200D2F9EC /* AndroidFileSync */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				4581BF0A2ED0772200D2F9EC /* Exceptions for "AndroidFileSync" folder in "AndroidFileSync" target */,
-				4581BF0B2ED0772200D2F9EC /* Exceptions for "AndroidFileSync" folder in "AndroidFileProvider" target */,
 			);
 			path = AndroidFileSync;
 			sourceTree = "<group>";
@@ -145,14 +79,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		453BAF182EC66C1C008AABAB /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				453BAF1E2EC66C1D008AABAB /* UniformTypeIdentifiers.framework in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -160,7 +86,6 @@
 			isa = PBXGroup;
 			children = (
 				4581BF032ED0772200D2F9EC /* AndroidFileSync */,
-				453BAF1F2EC66C1D008AABAB /* AndroidFileProvider */,
 				453BAF1C2EC66C1D008AABAB /* Frameworks */,
 				453BAF0A2EC66BC4008AABAB /* Products */,
 			);
@@ -170,7 +95,6 @@
 			isa = PBXGroup;
 			children = (
 				453BAF092EC66BC4008AABAB /* AndroidFileSync.app */,
-				453BAF1B2EC66C1C008AABAB /* AndroidFileProvider.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -198,7 +122,6 @@
 			buildRules = (
 			);
 			dependencies = (
-				453BAF292EC66C1D008AABAB /* PBXTargetDependency */,
 			);
 			name = AndroidFileSync;
 			packageProductDependencies = (
@@ -206,29 +129,6 @@
 			productName = AndroidFileSync;
 			productReference = 453BAF092EC66BC4008AABAB /* AndroidFileSync.app */;
 			productType = "com.apple.product-type.application";
-		};
-		453BAF1A2EC66C1C008AABAB /* AndroidFileProvider */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 453BAF2C2EC66C1D008AABAB /* Build configuration list for PBXNativeTarget "AndroidFileProvider" */;
-			buildPhases = (
-				453BAF172EC66C1C008AABAB /* Sources */,
-				453BAF182EC66C1C008AABAB /* Frameworks */,
-				453BAF192EC66C1C008AABAB /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				453BAF1F2EC66C1D008AABAB /* AndroidFileProvider */,
-				4581BF032ED0772200D2F9EC /* AndroidFileSync */,
-			);
-			name = AndroidFileProvider;
-			packageProductDependencies = (
-			);
-			productName = AndroidFileProvider;
-			productReference = 453BAF1B2EC66C1C008AABAB /* AndroidFileProvider.appex */;
-			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -241,9 +141,6 @@
 				LastUpgradeCheck = 2610;
 				TargetAttributes = {
 					453BAF082EC66BC4008AABAB = {
-						CreatedOnToolsVersion = 26.1;
-					};
-					453BAF1A2EC66C1C008AABAB = {
 						CreatedOnToolsVersion = 26.1;
 					};
 				};
@@ -263,20 +160,12 @@
 			projectRoot = "";
 			targets = (
 				453BAF082EC66BC4008AABAB /* AndroidFileSync */,
-				453BAF1A2EC66C1C008AABAB /* AndroidFileProvider */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		453BAF072EC66BC4008AABAB /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		453BAF192EC66C1C008AABAB /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -293,22 +182,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		453BAF172EC66C1C008AABAB /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXTargetDependency section */
-		453BAF292EC66C1D008AABAB /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 453BAF1A2EC66C1C008AABAB /* AndroidFileProvider */;
-			targetProxy = 453BAF282EC66C1D008AABAB /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		453BAF122EC66BC5008AABAB /* Debug */ = {
@@ -529,66 +403,6 @@
 			};
 			name = Release;
 		};
-		453BAF2D2EC66C1D008AABAB /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = AndroidFileProvider/AndroidFileProvider.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 34TS8NHVHD;
-				ENABLE_APP_SANDBOX = NO;
-				ENABLE_HARDENED_RUNTIME = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = AndroidFileProvider/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = AndroidFileProvider;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-					"@executable_path/../../../../Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.santosh.AndroidFileSync1.AndroidFileProvider;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-			};
-			name = Debug;
-		};
-		453BAF2E2EC66C1D008AABAB /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = AndroidFileProvider/AndroidFileProvider.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 34TS8NHVHD;
-				ENABLE_APP_SANDBOX = NO;
-				ENABLE_HARDENED_RUNTIME = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = AndroidFileProvider/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = AndroidFileProvider;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-					"@executable_path/../../../../Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.santosh.AndroidFileSync1.AndroidFileProvider;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -606,15 +420,6 @@
 			buildConfigurations = (
 				453BAF152EC66BC5008AABAB /* Debug */,
 				453BAF162EC66BC5008AABAB /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		453BAF2C2EC66C1D008AABAB /* Build configuration list for PBXNativeTarget "AndroidFileProvider" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				453BAF2D2EC66C1D008AABAB /* Debug */,
-				453BAF2E2EC66C1D008AABAB /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
