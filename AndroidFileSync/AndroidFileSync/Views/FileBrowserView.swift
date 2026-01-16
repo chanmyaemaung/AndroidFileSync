@@ -270,18 +270,48 @@ struct FileBrowserView: View, Equatable {
                 List(files, selection: $selectedFiles) { file in
                     SortableFileRow(file: file)
                         .tag(file.id)
-                        .contextMenu {
-                            fileContextMenu(for: file)
-                        }
-                        .onTapGesture(count: 2) {
-                            if file.isDirectory {
-                                onNavigate(file.path)
-                            } else {
-                                onDownload(file)
-                            }
-                        }
                 }
                 .listStyle(.inset)
+                // Use contextMenu with primaryAction for double-click - this is the macOS-native approach
+                // that works with selection (macOS 13+)
+                .contextMenu(forSelectionType: UUID.self, menu: { selectedIds in
+                    // Context menu for selected items
+                    let selectedItems = files.filter { selectedIds.contains($0.id) }
+                    let isSingleSelection = selectedIds.count <= 1
+                    
+                    if let firstItem = selectedItems.first {
+                        if !firstItem.isDirectory || !isSingleSelection {
+                            Button(isSingleSelection ? "Download" : "Download Selected") {
+                                if isSingleSelection, let file = selectedItems.first, !file.isDirectory {
+                                    onDownload(file)
+                                } else {
+                                    onBatchDownload?()
+                                }
+                            }
+                            Divider()
+                        }
+                        
+                        Button("Move to Trash", role: .destructive) {
+                            if isSingleSelection {
+                                fileToDelete = firstItem
+                                showDeleteConfirmation = true
+                            } else {
+                                batchDeleteCount = selectedIds.count
+                                showBatchDeleteConfirmation = true
+                            }
+                        }
+                    }
+                }, primaryAction: { selectedIds in
+                    // Double-click action - navigate into folder or download file
+                    if let firstId = selectedIds.first,
+                       let file = files.first(where: { $0.id == firstId }) {
+                        if file.isDirectory {
+                            onNavigate(file.path)
+                        } else {
+                            onDownload(file)
+                        }
+                    }
+                })
             }
         }
     }
@@ -538,6 +568,7 @@ struct SortableFileRow: View {
                 .frame(width: 80, alignment: .center)
         }
         .padding(.vertical, 4)
+        .contentShape(Rectangle()) // Make entire row tappable
     }
     
     private var dateText: String {
