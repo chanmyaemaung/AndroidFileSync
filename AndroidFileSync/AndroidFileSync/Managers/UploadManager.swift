@@ -217,21 +217,122 @@ class UploadManager: ObservableObject {
         flagLock.unlock()
     }
     
+    // MARK: - Parallel Upload Support
+    
+    /// Starts an upload without waiting for completion (fire-and-forget for parallel execution)
+    /// - Returns: The Task that can be used to track or cancel the upload
+    @discardableResult
+    func startUpload(
+        localPath: String,
+        fileName: String,
+        fileSize: UInt64,
+        to devicePath: String
+    ) -> Task<Void, Never> {
+        let (safeFileName, _) = FileNameHelper.getSafeFilename(fileName)
+        
+        let safeDevicePath: String
+        if devicePath.hasSuffix("/") {
+            safeDevicePath = devicePath + safeFileName
+        } else {
+            safeDevicePath = devicePath + "/" + safeFileName
+        }
+        
+        let progress = UploadProgress(
+            fileName: safeFileName,
+            localPath: localPath,
+            devicePath: safeDevicePath,
+            totalBytes: fileSize
+        )
+        
+        // Add to UI on main thread and start timer
+        Task { @MainActor in
+            activeUploads[localPath] = progress
+            startTimerIfNeeded()
+        }
+        
+        // Reset cancellation flag
+        setCancelled(localPath: localPath, value: false)
+        
+        // Create the upload task
+        let uploadTask = Task.detached { [weak self] in
+            guard let self = self else { return }
+            
+            let progressStream = ADBManager.pushFileWithProgress(
+                localPath: localPath,
+                devicePath: safeDevicePath,
+                totalBytes: fileSize,
+                cancellationCheck: { [weak self] in
+                    self?.isCancelled(localPath: localPath) ?? false
+                }
+            )
+            
+            // Consume stream and update background storage
+            for await (bytesTransferred, speed) in progressStream {
+                if self.isCancelled(localPath: localPath) {
+                    print("🛑 Upload cancelled: \(safeFileName)")
+                    return
+                }
+                
+                self.progressLock.lock()
+                self.backgroundProgress[localPath] = (bytesTransferred, speed)
+                self.progressLock.unlock()
+            }
+            
+            // Check for cancellation
+            if self.isCancelled(localPath: localPath) {
+                return
+            }
+            
+            // Clear background progress
+            self.progressLock.lock()
+            self.backgroundProgress.removeValue(forKey: localPath)
+            self.progressLock.unlock()
+            
+            // Mark complete on main thread
+            await MainActor.run {
+                self.activeUploads[localPath]?.isComplete = true
+                self.activeUploads[localPath]?.bytesTransferred = fileSize
+                self.activeUploads[localPath]?.transferSpeed = 0
+            }
+            
+            // Show 100% briefly
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            
+            await MainActor.run {
+                self.activeUploads.removeValue(forKey: localPath)
+                self.stopTimerIfNeeded()
+            }
+            
+            // Clean up flag
+            self.flagLock.lock()
+            self.cancellationFlags.removeValue(forKey: localPath)
+            self.flagLock.unlock()
+        }
+        
+        return uploadTask
+    }
+    
+    /// Uploads multiple files in parallel (like downloads)
     func uploadMultipleFiles(
         files: [(localPath: String, fileName: String, fileSize: UInt64)],
         toDirectory devicePath: String
     ) async {
+        // Start all uploads in parallel
+        var tasks: [Task<Void, Never>] = []
+        
         for file in files {
-            do {
-                try await uploadFile(
-                    localPath: file.localPath,
-                    fileName: file.fileName,
-                    fileSize: file.fileSize,
-                    to: devicePath
-                )
-            } catch {
-                print("❌ Failed to upload \(file.fileName): \(error)")
-            }
+            let task = startUpload(
+                localPath: file.localPath,
+                fileName: file.fileName,
+                fileSize: file.fileSize,
+                to: devicePath
+            )
+            tasks.append(task)
+        }
+        
+        // Wait for all uploads to complete
+        for task in tasks {
+            await task.value
         }
     }
 }
