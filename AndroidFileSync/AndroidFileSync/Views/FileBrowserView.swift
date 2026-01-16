@@ -34,7 +34,8 @@ struct FileBrowserView: View, Equatable {
         lhs.currentPath == rhs.currentPath &&
         lhs.isLoading == rhs.isLoading &&
         lhs.canGoBack == rhs.canGoBack &&
-        lhs.selectedFiles == rhs.selectedFiles
+        lhs.selectedFiles == rhs.selectedFiles &&
+        lhs.sortOption == rhs.sortOption
     }
     
     // FIX 1: Bring back the state variable for UI feedback
@@ -61,9 +62,9 @@ struct FileBrowserView: View, Equatable {
             Divider()
             fileListOrEmptyState
             
-            // Selection toolbar
-            if !selectedFiles.isEmpty {
-                let selectedFilesList = files.filter { selectedFiles.contains($0.id) }
+            // Selection toolbar - only show when there are selected files in current view
+            let selectedFilesList = files.filter { selectedFiles.contains($0.id) }
+            if !selectedFilesList.isEmpty {
                 SelectionToolbar(
                     selectedFiles: selectedFilesList,
                     onClearSelection: { selectedFiles.removeAll() },

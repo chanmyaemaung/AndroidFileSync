@@ -70,7 +70,7 @@ struct ActionToolbar: View {
             
             // Clipboard indicator or Loading indicator
             if fileActionManager.isPerformingAction {
-                // Show loading indicator during paste
+                // Show loading indicator during action - flexible but won't grow infinitely
                 HStack(spacing: 6) {
                     ProgressView()
                         .scaleEffect(0.6)
@@ -78,11 +78,16 @@ struct ActionToolbar: View {
                     Text(fileActionManager.currentAction)
                         .font(.caption)
                         .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                .frame(maxWidth: 200) // Max width, but can shrink
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
                 .background(Color.orange.opacity(0.15))
                 .cornerRadius(6)
+                .layoutPriority(-1) // Lower priority than search field
                 
                 Divider()
                     .frame(height: 16)
@@ -193,6 +198,7 @@ struct ActionToolbar: View {
                             .stroke(isSearchFocused ? Color.accentColor : Color.clear, lineWidth: 1)
                     )
             )
+            .layoutPriority(1) // Higher priority than action indicator
             .onTapGesture {
                 isSearchFocused = true
             }

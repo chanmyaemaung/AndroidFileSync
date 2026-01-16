@@ -89,14 +89,16 @@ struct SelectionToolbar: View {
                     .buttonStyle(.borderless)
                 }
                 
-                // Download
-                Button {
-                    onDownload()
-                } label: {
-                    Label(isSingleSelection ? "Download" : "Download All", systemImage: "arrow.down.circle.fill")
-                        .font(.caption)
+                // Download - only show if there are files (not just folders)
+                if hasOnlyFiles {
+                    Button {
+                        onDownload()
+                    } label: {
+                        Label(isSingleSelection ? "Download" : "Download All", systemImage: "arrow.down.circle.fill")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.borderless)
                 }
-                .buttonStyle(.borderless)
                 
                 // Move to Trash
                 Button {

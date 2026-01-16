@@ -54,10 +54,21 @@ struct ContentView: View {
         case .size:
             result.sort { $0.size > $1.size }
         case .type:
+            // Sort by file type/extension, folders first
             result.sort { 
+                // Folders always come first
                 if $0.isDirectory != $1.isDirectory {
-                    return $0.isDirectory // Folders first
+                    return $0.isDirectory
                 }
+                // For files, sort by extension first, then by name
+                if !$0.isDirectory && !$1.isDirectory {
+                    let ext0 = ($0.name as NSString).pathExtension.lowercased()
+                    let ext1 = ($1.name as NSString).pathExtension.lowercased()
+                    if ext0 != ext1 {
+                        return ext0 < ext1
+                    }
+                }
+                // Same type - sort by name
                 return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
             }
         case .date:
