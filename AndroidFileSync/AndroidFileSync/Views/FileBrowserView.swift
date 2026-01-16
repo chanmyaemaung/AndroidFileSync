@@ -314,6 +314,7 @@ struct FileBrowserView: View, Equatable {
                 })
             }
         }
+        
     }
     
     @ViewBuilder
