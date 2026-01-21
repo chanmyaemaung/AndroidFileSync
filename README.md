@@ -3,7 +3,7 @@
 A native macOS app for managing files on your Android device via USB.
 
 ![macOS](https://img.shields.io/badge/macOS-13.0+-blue.svg)
-![License](https://img.shields.io/badge/License-MIT-green.svg)
+![License](https://img.shields.io/badge/License-GPL-green.svg)
 
 ## Quick Start
 
