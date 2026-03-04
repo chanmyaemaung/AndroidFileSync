@@ -5,7 +5,6 @@ A free, native macOS app to transfer files between your Mac and Android phone ov
 No cloud. No Wi-Fi. No Google account needed. Just plug in and go.
 
 ![SwiftUI](https://img.shields.io/badge/SwiftUI-macOS%2013%2B-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Features
 
@@ -111,6 +110,4 @@ To create a DMG:
 - **ADB** — Android Debug Bridge (bundled with the app)
 - **Swift Concurrency** — Async/await for parallel transfers
 
-## License
 
-MIT License — free for personal and commercial use.
