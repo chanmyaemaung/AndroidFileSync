@@ -45,11 +45,16 @@ struct ConnectionBadge: View {
     
     var body: some View {
         HStack(spacing: 4) {
-            if type == .adb {
+            switch type {
+            case .usb:
                 Image(systemName: "bolt.fill")
-                Text("ADB")
+                Text("USB")
                     .font(.caption)
-            } else {
+            case .wireless:
+                Image(systemName: "wifi")
+                Text("WiFi")
+                    .font(.caption)
+            case .none:
                 Image(systemName: "xmark.circle")
                 Text("Disconnected")
                     .font(.caption)
@@ -57,7 +62,15 @@ struct ConnectionBadge: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(type == .adb ? Color.blue.opacity(0.2) : Color.gray.opacity(0.2))
+        .background(badgeColor)
         .cornerRadius(4)
+    }
+    
+    private var badgeColor: Color {
+        switch type {
+        case .usb: return Color.blue.opacity(0.2)
+        case .wireless: return Color.green.opacity(0.2)
+        case .none: return Color.gray.opacity(0.2)
+        }
     }
 }

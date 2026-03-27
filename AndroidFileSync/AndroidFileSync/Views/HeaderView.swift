@@ -12,20 +12,33 @@ import SwiftUI
 
 struct HeaderView: View {
     
-//    @StateObject private var deviceManager = DeviceManager()
-//    @StateObject private var deviceManager = DeviceManager()
-//    @StateObject private var downloadManager = DownloadManager()
-//    @StateObject private var uploadManager = UploadManager()
-    
     @ObservedObject var deviceManager: DeviceManager
     @ObservedObject var downloadManager: DownloadManager
     @ObservedObject var uploadManager: UploadManager
+    @Binding var showWirelessConnect: Bool
     
     var body: some View {
         HStack {
             deviceStatusIcon
             deviceInfo
             Spacer()
+            
+            // Wireless connect button
+            Button(action: { showWirelessConnect = true }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "wifi")
+                    Text("WiFi")
+                        .font(.caption)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.blue.opacity(0.1))
+                )
+            }
+            .buttonStyle(.plain)
+            .help("Connect via WiFi (Android 11+)")
             
             if deviceManager.isConnected {
                 ConnectionBadge(type: deviceManager.connectionType)

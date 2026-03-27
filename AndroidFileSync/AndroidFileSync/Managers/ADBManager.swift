@@ -7,6 +7,17 @@ import Foundation
 class ADBManager {
     // Cache the path so we don't search every time
     private static var adbPath: String?
+    
+    // Track the active device serial for multi-device support
+    static var activeDeviceSerial: String?
+    
+    /// Returns args with -s <serial> prepended if a device serial is set
+    static func deviceArgs(_ args: [String]) -> [String] {
+        if let serial = activeDeviceSerial {
+            return ["-s", serial] + args
+        }
+        return args
+    }
 
     static func getADBPath() -> String {
         if let cached = adbPath { 
@@ -81,16 +92,35 @@ class ADBManager {
         print("📱 ADB devices output: \(output)")
         
         let lines = output.split(separator: "\n")
+        var foundSerials: [String] = []
+        
         for line in lines {
             let s = String(line)
             if !s.starts(with: "List") &&
                (s.contains("\tdevice") || s.hasSuffix(" device")) {
-                print("📱 Found connected device!")
-                return true
+                let serial = String(s.split(separator: "\t").first ?? s.split(separator: " ").first ?? Substring(s))
+                if !serial.isEmpty {
+                    foundSerials.append(serial)
+                }
             }
         }
-        print("📱 No device found in ADB output")
-        return false
+        
+        guard !foundSerials.isEmpty else {
+            activeDeviceSerial = nil
+            print("📱 No device found in ADB output")
+            return false
+        }
+        
+        // Prefer wireless (IP:port) device if multiple are connected
+        if let wirelessSerial = foundSerials.first(where: { $0.contains(":") && $0.contains(".") }) {
+            activeDeviceSerial = wirelessSerial
+            print("📱 Using wireless device: \(wirelessSerial)")
+        } else {
+            activeDeviceSerial = foundSerials.first
+            print("📱 Using device: \(foundSerials.first ?? "unknown")")
+        }
+        
+        return true
     }
 
     static func listFiles(path: String) async throws -> [ADBFile] {
@@ -104,7 +134,7 @@ class ADBManager {
         
         let (code, output, error) = await Shell.runAsyncWithTimeout(
             adbPath,
-            args: ["shell", listCommand],
+            args: deviceArgs(["shell", listCommand]),
             timeoutSeconds: 30.0
         )
         
@@ -149,7 +179,7 @@ class ADBManager {
         
         let (findCode, findOutput, _) = await Shell.runAsyncWithTimeout(
             adbPath,
-            args: ["shell", findCommand],
+            args: deviceArgs(["shell", findCommand]),
             timeoutSeconds: 60.0
         )
         
@@ -217,7 +247,7 @@ class ADBManager {
         
         let (code, output, error) = await Shell.runAsyncWithTimeout(
             adbPath,
-            args: ["shell", command],
+            args: deviceArgs(["shell", command]),
             timeoutSeconds: 60.0
         )
         
@@ -278,7 +308,7 @@ class ADBManager {
                 await withTaskGroup(of: Void.self) { group in
                     // Task 1: Run the download
                     group.addTask {
-                        let (code, _, error) = await Shell.runAsync(adbPath, args: ["pull", devicePath, localPath])
+                        let (code, _, error) = await Shell.runAsync(adbPath, args: deviceArgs(["pull", devicePath, localPath]))
                         if code != 0 {
                             print("❌ ADB Pull Error: \(error)")
                         } else {
@@ -345,7 +375,7 @@ class ADBManager {
                 // Create and manage the process directly for cancellation support
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: adbPath)
-                process.arguments = ["push", localPath, devicePath]
+                process.arguments = deviceArgs(["push", localPath, devicePath])
                 process.standardOutput = Pipe()
                 process.standardError = Pipe()
                 
@@ -377,7 +407,7 @@ class ADBManager {
                             // Get remote file size using stat (synchronous for simplicity)
                             let (statCode, statOutput, _) = Shell.run(
                                 adbPath,
-                                args: ["shell", "stat", "-c%s", devicePath]
+                                args: deviceArgs(["shell", "stat", "-c%s", devicePath])
                             )
                             
                             if statCode == 0, let currentSize = UInt64(statOutput.trimmingCharacters(in: .whitespacesAndNewlines)) {
@@ -453,7 +483,7 @@ class ADBManager {
 
         let (code, _, error, process) = await Shell.runWithProgressCancellable(
             adbPath,
-            args: [command, source, dest],
+            args: deviceArgs([command, source, dest]),
             progressCallback: { outputChunk in
                 // Check for cancellation
                 if cancellationCheck() {
@@ -536,7 +566,7 @@ class ADBManager {
         // Use rm -rf to delete files and folders recursively
         let command = "rm -rf '\(escapedPath)'"
         
-        let (code, _, error) = await Shell.runAsync(adbPath, args: ["shell", command])
+        let (code, _, error) = await Shell.runAsync(adbPath, args: deviceArgs(["shell", command]))
         
         if code != 0 {
             // Check for specific error types
@@ -583,7 +613,7 @@ class ADBManager {
         // Use mv command to rename/move
         let command = "mv '\(escapedOldPath)' '\(escapedNewPath)'"
         
-        let (code, _, error) = await Shell.runAsync(adbPath, args: ["shell", command])
+        let (code, _, error) = await Shell.runAsync(adbPath, args: deviceArgs(["shell", command]))
         
         if code != 0 {
             // Check for specific error types
@@ -631,7 +661,7 @@ class ADBManager {
         let escapedPath = path.replacingOccurrences(of: "'", with: "'\\''")
         let command = "mkdir -p '\(escapedPath)'"
         
-        let (code, _, error) = await Shell.runAsync(adbPath, args: ["shell", command])
+        let (code, _, error) = await Shell.runAsync(adbPath, args: deviceArgs(["shell", command]))
         
         if code != 0 {
             if error.contains("Read-only") {
@@ -662,7 +692,7 @@ class ADBManager {
             command = "echo '\(escapedContent)' > '\(escapedPath)'"
         }
         
-        let (code, _, error) = await Shell.runAsync(adbPath, args: ["shell", command])
+        let (code, _, error) = await Shell.runAsync(adbPath, args: deviceArgs(["shell", command]))
         
         if code != 0 {
             if error.contains("Read-only") {
@@ -691,7 +721,7 @@ class ADBManager {
         if isDirectory {
             // Step 1: Create the directory (fast)
             let mkdirCmd = "mkdir -p '\(escapedDest)'"
-            let (mkdirCode, _, mkdirError) = await Shell.runAsync(adbPath, args: ["shell", mkdirCmd])
+            let (mkdirCode, _, mkdirError) = await Shell.runAsync(adbPath, args: deviceArgs(["shell", mkdirCmd]))
             
             if mkdirCode != 0 {
                 throw NSError(domain: "ADB", code: Int(mkdirCode), userInfo: [NSLocalizedDescriptionKey: mkdirError.isEmpty ? "Failed to create folder" : mkdirError])
@@ -699,13 +729,13 @@ class ADBManager {
             
             // Step 2: Copy contents if any exist (separate call, only if needed)
             let cpCmd = "cp -r '\(escapedSource)/.' '\(escapedDest)/' 2>/dev/null || true"
-            let (_, _, _) = await Shell.runAsync(adbPath, args: ["shell", cpCmd])
+            let (_, _, _) = await Shell.runAsync(adbPath, args: deviceArgs(["shell", cpCmd]))
             // Ignore result - empty folder will fail but that's OK
             
         } else {
             // Regular file copy
             let command = "cp '\(escapedSource)' '\(escapedDest)'"
-            let (code, output, error) = await Shell.runAsync(adbPath, args: ["shell", command])
+            let (code, output, error) = await Shell.runAsync(adbPath, args: deviceArgs(["shell", command]))
             
             if code != 0 {
                 print("❌ Copy failed: code=\(code), error=\(error), output=\(output)")
@@ -723,6 +753,139 @@ class ADBManager {
         }
     }
     
+    // MARK: - Wireless ADB (Android 11+)
+    
+    /// Pairs with an Android 11+ device using wireless debugging
+    /// - Parameters:
+    ///   - ip: Device IP address
+    ///   - port: Pairing port (shown on device's wireless debugging screen)
+    ///   - code: 6-digit pairing code (shown on device)
+    /// - Returns: Tuple of (success, message)
+    static func pairDevice(ip: String, port: String, code: String) async -> (Bool, String) {
+        let adbPath = getADBPath()
+        guard !adbPath.isEmpty else {
+            return (false, "ADB not found")
+        }
+        
+        let target = "\(ip):\(port)"
+        print("📶 ADB: Pairing with \(target)...")
+        
+        // adb pair <ip>:<port> <code>
+        let (exitCode, output, error) = await Shell.runAsyncWithTimeout(
+            adbPath,
+            args: ["pair", target, code],
+            timeoutSeconds: 15.0
+        )
+        
+        let combined = output + error
+        print("📶 ADB Pair result: code=\(exitCode), output=\(combined)")
+        
+        if exitCode == 0 && (combined.lowercased().contains("successfully paired") || combined.lowercased().contains("paired")) {
+            return (true, "Successfully paired with device")
+        } else if combined.lowercased().contains("failed") {
+            return (false, "Pairing failed. Check the pairing code and try again.")
+        } else if exitCode != 0 {
+            return (false, error.isEmpty ? "Pairing failed (code \(exitCode))" : error)
+        }
+        
+        return (true, combined)
+    }
+    
+    /// Connects to a device over WiFi after pairing
+    /// - Parameters:
+    ///   - ip: Device IP address
+    ///   - port: Connection port (usually 5555, or the port shown in wireless debugging)
+    /// - Returns: Tuple of (success, message)
+    static func connectWireless(ip: String, port: String = "5555") async -> (Bool, String) {
+        let adbPath = getADBPath()
+        guard !adbPath.isEmpty else {
+            return (false, "ADB not found")
+        }
+        
+        let target = "\(ip):\(port)"
+        print("📶 ADB: Connecting to \(target)...")
+        
+        let (exitCode, output, error) = await Shell.runAsyncWithTimeout(
+            adbPath,
+            args: ["connect", target],
+            timeoutSeconds: 10.0
+        )
+        
+        let combined = output + error
+        print("📶 ADB Connect result: code=\(exitCode), output=\(combined)")
+        
+        if combined.lowercased().contains("connected to") {
+            return (true, "Connected to \(target)")
+        } else if combined.lowercased().contains("already connected") {
+            return (true, "Already connected to \(target)")
+        } else if combined.lowercased().contains("cannot connect") || combined.lowercased().contains("failed") {
+            return (false, "Cannot connect to \(target). Make sure Wireless Debugging is enabled.")
+        }
+        
+        return (exitCode == 0, combined)
+    }
+    
+    /// Disconnects from a wireless device
+    static func disconnectWireless(ip: String, port: String = "5555") async -> (Bool, String) {
+        let adbPath = getADBPath()
+        guard !adbPath.isEmpty else {
+            return (false, "ADB not found")
+        }
+        
+        let target = "\(ip):\(port)"
+        let (exitCode, output, error) = await Shell.runAsyncWithTimeout(
+            adbPath,
+            args: ["disconnect", target],
+            timeoutSeconds: 5.0
+        )
+        
+        let combined = output + error
+        return (exitCode == 0, combined)
+    }
+    
+    /// Disconnects all wireless devices
+    static func disconnectAllWireless() async -> (Bool, String) {
+        let adbPath = getADBPath()
+        guard !adbPath.isEmpty else {
+            return (false, "ADB not found")
+        }
+        
+        let (exitCode, output, error) = await Shell.runAsyncWithTimeout(
+            adbPath,
+            args: ["disconnect"],
+            timeoutSeconds: 5.0
+        )
+        
+        return (exitCode == 0, output + error)
+    }
+    
+    /// Checks if the currently connected device is via wireless (IP:port format)
+    static func isWirelessConnection() async -> Bool {
+        let adbPath = getADBPath()
+        guard !adbPath.isEmpty else { return false }
+        
+        let (code, output, _) = await Shell.runAsyncWithTimeout(
+            adbPath,
+            args: ["devices"],
+            timeoutSeconds: 5.0
+        )
+        
+        guard code == 0 else { return false }
+        
+        let lines = output.split(separator: "\n")
+        for line in lines {
+            let s = String(line)
+            if !s.starts(with: "List") &&
+               (s.contains("\tdevice") || s.hasSuffix(" device")) {
+                // Wireless devices show as IP:port (e.g., 192.168.1.5:5555)
+                if s.contains(":") && s.split(separator: "\t").first?.contains(".") == true {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+    
     // MARK: - Get File Info
     
     /// Gets detailed information about a file
@@ -735,7 +898,7 @@ class ADBManager {
         // Get file stats using stat command
         let command = "stat -c '%s|%Y|%a|%U|%G|%F' '\(escapedPath)' 2>/dev/null || ls -ld '\(escapedPath)'"
         
-        let (code, output, error) = await Shell.runAsync(adbPath, args: ["shell", command])
+        let (code, output, error) = await Shell.runAsync(adbPath, args: deviceArgs(["shell", command]))
         
         if code != 0 || output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw NSError(domain: "ADB", code: Int(code), userInfo: [NSLocalizedDescriptionKey: error.isEmpty ? "Failed to get file info" : error])

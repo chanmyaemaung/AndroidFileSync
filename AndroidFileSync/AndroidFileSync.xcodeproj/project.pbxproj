@@ -55,6 +55,7 @@
 				Views/TransferProgressContainer.swift,
 				Views/TransferProgressView.swift,
 				Views/TrashView.swift,
+				Views/WirelessConnectView.swift,
 			);
 			target = 453BAF082EC66BC4008AABAB /* AndroidFileSync */;
 		};

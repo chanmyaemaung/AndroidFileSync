@@ -10,6 +10,7 @@ import SwiftUI
 struct EmptyStateView: View {
     var isDetecting: Bool = false
     var onRetry: (() -> Void)? = nil
+    var onConnectWiFi: (() -> Void)? = nil
     
     var body: some View {
         VStack(spacing: 24) {
@@ -34,7 +35,7 @@ struct EmptyStateView: View {
                 Text(isDetecting ? "Scanning for Device..." : "No Device Connected")
                     .font(.system(.title2, design: .rounded, weight: .semibold))
                 
-                Text(isDetecting ? "Please wait while we detect your device" : "Connect your Android device via USB")
+                Text(isDetecting ? "Please wait while we detect your device" : "Connect your Android device via USB or WiFi")
                     .font(.body)
                     .foregroundColor(.secondary)
             }
@@ -44,27 +45,53 @@ struct EmptyStateView: View {
                 instructionsList
             }
             
-            // Retry button
-            if !isDetecting, let onRetry = onRetry {
-                Button(action: onRetry) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "arrow.clockwise")
-                        Text("Try Again")
+            // Action buttons
+            if !isDetecting {
+                HStack(spacing: 16) {
+                    if let onRetry = onRetry {
+                        Button(action: onRetry) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "arrow.clockwise")
+                                Text("Try Again")
+                            }
+                            .font(.system(.body, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 12)
+                            .background(
+                                LinearGradient(
+                                    colors: [.blue, .blue.opacity(0.8)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .cornerRadius(10)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .font(.system(.body, weight: .medium))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 12)
-                    .background(
-                        LinearGradient(
-                            colors: [.blue, .blue.opacity(0.8)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .cornerRadius(10)
+                    
+                    if let onWiFi = onConnectWiFi {
+                        Button(action: onWiFi) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "wifi")
+                                Text("Connect via WiFi")
+                            }
+                            .font(.system(.body, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 12)
+                            .background(
+                                LinearGradient(
+                                    colors: [.green, .green.opacity(0.8)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .cornerRadius(10)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
-                .buttonStyle(.plain)
                 .padding(.top, 8)
                 
                 // Auto-retry hint
@@ -82,7 +109,8 @@ struct EmptyStateView: View {
         VStack(alignment: .leading, spacing: 12) {
             instructionRow(number: 1, text: "Enable 'File Transfer' mode on your phone", icon: "folder.fill")
             instructionRow(number: 2, text: "Or enable 'USB Debugging' for better performance", icon: "ant.fill")
-            instructionRow(number: 3, text: "Make sure ADB is installed on your Mac", icon: "terminal.fill")
+            instructionRow(number: 3, text: "Or use WiFi — enable Wireless Debugging (Android 11+)", icon: "wifi")
+            instructionRow(number: 4, text: "Make sure ADB is installed on your Mac", icon: "terminal.fill")
         }
         .padding(20)
         .background(
@@ -113,3 +141,4 @@ struct EmptyStateView: View {
         }
     }
 }
+

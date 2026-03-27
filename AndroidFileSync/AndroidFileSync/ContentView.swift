@@ -33,6 +33,7 @@ struct ContentView: View {
     
     // Trash view state
     @State private var showTrashView = false
+    @State private var showWirelessConnect = false
     
     // Search and sort state
     @State private var searchQuery = ""
@@ -90,7 +91,7 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Your HeaderView
-            HeaderView(deviceManager: deviceManager, downloadManager: downloadManager, uploadManager: uploadManager)
+            HeaderView(deviceManager: deviceManager, downloadManager: downloadManager, uploadManager: uploadManager, showWirelessConnect: $showWirelessConnect)
             Divider()
 
             // Main Content
@@ -151,6 +152,9 @@ struct ContentView: View {
                         Task {
                             await initializeDevice()
                         }
+                    },
+                    onConnectWiFi: {
+                        showWirelessConnect = true
                     }
                 )
             }
@@ -191,6 +195,25 @@ struct ContentView: View {
         }) {
             TrashView(fileActionManager: fileActionManager)
                 .frame(width: 450, height: 400)
+        }
+        // Wireless connect sheet
+        .sheet(isPresented: $showWirelessConnect, onDismiss: {
+            Task {
+                if deviceManager.isConnected {
+                    currentPath = await deviceManager.getRealStoragePath()
+                    await loadFiles()
+                }
+            }
+        }) {
+            WirelessConnectView(
+                deviceManager: deviceManager,
+                onConnected: {
+                    Task {
+                        currentPath = await deviceManager.getRealStoragePath()
+                        await loadFiles()
+                    }
+                }
+            )
         }
     }
     
