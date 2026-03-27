@@ -753,6 +753,23 @@ class ADBManager {
         }
     }
     
+    // MARK: - QR Code Pairing (Android 11+)
+    
+    /// Generates QR code pairing data in the format Android expects
+    /// Returns: (qrString, serviceName, password)
+    static func generateQRPairingData() -> (String, String, String) {
+        // Generate a random service name and password
+        let chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+        let serviceName = "afs-" + String((0..<6).map { _ in chars.randomElement()! })
+        let password = String((0..<6).map { _ in chars.randomElement()! })
+        
+        // Android expects this exact format for QR code pairing
+        let qrString = "WIFI:T:ADB;S:\(serviceName);P:\(password);;"
+        
+        print("📶 QR: Generated pairing data - service=\(serviceName), password=\(password)")
+        return (qrString, serviceName, password)
+    }
+    
     // MARK: - Wireless ADB (Android 11+)
     
     /// Pairs with an Android 11+ device using wireless debugging

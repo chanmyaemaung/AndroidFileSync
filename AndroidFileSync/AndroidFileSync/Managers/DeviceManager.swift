@@ -148,6 +148,13 @@ class DeviceManager: ObservableObject {
         await detectDevice()
     }
     
+    /// Re-detect device after QR pairing auto-connected it
+    func detectDeviceAfterWirelessConnect() {
+        Task {
+            await detectDevice()
+        }
+    }
+    
     func listFiles(path: String = "/sdcard") async throws -> [UnifiedFile] {
         guard adbAvailable else {
             throw NSError(
