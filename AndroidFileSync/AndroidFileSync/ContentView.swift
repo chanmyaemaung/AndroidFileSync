@@ -16,6 +16,7 @@ struct ContentView: View {
     @ObservedObject var deviceManager: DeviceManager
     @ObservedObject var downloadManager: DownloadManager
     @ObservedObject var uploadManager: UploadManager
+    @StateObject private var filePreviewManager = FilePreviewManager()
 
     @State private var files: [UnifiedFile] = []
     @State private var currentPath = "/sdcard"
@@ -134,6 +135,7 @@ struct ContentView: View {
                             onUpload: handleUpload,
                             onDelete: handleDelete,
                             onRename: handleRename,
+                            onPreview: { file in filePreviewManager.previewFile(file) },
                             onBatchDelete: handleBatchDelete,
                             onBatchDownload: handleBatchDownload,
                             onBatchChangeExtension: { ext in handleBatchChangeExtension(ext) },
@@ -142,6 +144,26 @@ struct ContentView: View {
                             sortOption: sortOption,
                             onSortChange: { option in sortFiles(by: option) }
                         )
+                        
+                        // Preview loading overlay
+                        if filePreviewManager.isLoading {
+                            VStack(spacing: 12) {
+                                ProgressView()
+                                    .scaleEffect(1.2)
+                                Text("Loading preview...")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                                Text(filePreviewManager.loadingFileName)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+                            .padding(24)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(.ultraThinMaterial)
+                            )
+                        }
                     }
                 }
             } else {

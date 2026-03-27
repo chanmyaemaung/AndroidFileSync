@@ -64,7 +64,7 @@ class FileActionManager: ObservableObject {
     private func ensureTrashFolder() async throws {
         let (code, _, _) = await Shell.runAsync(
             ADBManager.getADBPath(),
-            args: ["shell", "mkdir -p '\(trashFolderPath)'"]
+            args: ADBManager.deviceArgs(["shell", "mkdir -p '\(trashFolderPath)'"])
         )
         if code != 0 {
             print("⚠️ Could not create trash folder, will delete permanently")
@@ -197,7 +197,7 @@ class FileActionManager: ObservableObject {
         // Delete the entire trash folder
         let (code, _, error) = await Shell.runAsync(
             ADBManager.getADBPath(),
-            args: ["shell", "rm -rf '\(trashFolderPath)'"]
+            args: ADBManager.deviceArgs(["shell", "rm -rf '\(trashFolderPath)'"])
         )
         
         await MainActor.run {

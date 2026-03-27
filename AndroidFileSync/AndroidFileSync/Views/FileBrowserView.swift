@@ -18,6 +18,7 @@ struct FileBrowserView: View, Equatable {
     let onUpload: ([URL]) -> Void
     let onDelete: ((UnifiedFile) -> Void)?
     let onRename: ((UnifiedFile, String) -> Void)?
+    var onPreview: ((UnifiedFile) -> Void)? = nil
     let onBatchDelete: (() -> Void)?
     let onBatchDownload: (() -> Void)?
     let onBatchChangeExtension: ((String) -> Void)?
@@ -281,6 +282,16 @@ struct FileBrowserView: View, Equatable {
                     let isSingleSelection = selectedIds.count <= 1
                     
                     if let firstItem = selectedItems.first {
+                        // Preview option (for single previewable files)
+                        if isSingleSelection && !firstItem.isDirectory && FilePreviewManager.isPreviewable(firstItem) {
+                            Button {
+                                onPreview?(firstItem)
+                            } label: {
+                                Label("Preview", systemImage: "eye")
+                            }
+                            Divider()
+                        }
+                        
                         if !firstItem.isDirectory || !isSingleSelection {
                             Button(isSingleSelection ? "Download" : "Download Selected") {
                                 if isSingleSelection, let file = selectedItems.first, !file.isDirectory {
@@ -303,11 +314,13 @@ struct FileBrowserView: View, Equatable {
                         }
                     }
                 }, primaryAction: { selectedIds in
-                    // Double-click action - navigate into folder or download file
+                    // Double-click action
                     if let firstId = selectedIds.first,
                        let file = files.first(where: { $0.id == firstId }) {
                         if file.isDirectory {
                             onNavigate(file.path)
+                        } else if FilePreviewManager.isPreviewable(file) {
+                            onPreview?(file)
                         } else {
                             onDownload(file)
                         }
