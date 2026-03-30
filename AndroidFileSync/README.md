@@ -5,7 +5,7 @@ A free, native macOS app to transfer files between your Mac and Android phone �
 No cloud. No Google account needed. Plug in via USB or scan a QR code to connect wirelessly.
 
 ![SwiftUI](https://img.shields.io/badge/SwiftUI-macOS%2013%2B-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+
 
 ## Features
 
@@ -149,6 +149,3 @@ To create a DMG:
 - **CoreImage** — QR code generation
 - **Quick Look** — Native file preview via macOS default apps
 
-## License
-
-MIT License — free for personal and commercial use.
