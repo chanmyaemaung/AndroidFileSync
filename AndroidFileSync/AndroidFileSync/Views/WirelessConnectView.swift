@@ -444,6 +444,9 @@ struct WirelessConnectView: View {
                             if pairingBrowser.status != .idle && pairingBrowser.status != .searching && pairingBrowser.status != .pairing && pairingBrowser.status != .paired {
                                 // Input form
                                 VStack(alignment: .leading, spacing: 16) {
+                                    // Select an active IP explicitly for lookup
+                                    let activeIP = selectedDeviceIP.isEmpty ? (pairingBrowser.discoveredDevices.keys.first ?? "") : selectedDeviceIP
+
                                     VStack(alignment: .leading, spacing: 4) {
                                         if pairingBrowser.discoveredDevices.count > 1 {
                                             Text("Multiple Devices Discovered")
@@ -460,15 +463,14 @@ struct WirelessConnectView: View {
                                         } else {
                                             Text("Device Discovered")
                                                 .font(.headline)
-                                            Text("IP: \(selectedDeviceIP)")
+                                            Text("IP: \(activeIP)")
                                                 .font(.subheadline)
                                                 .foregroundColor(.secondary)
                                         }
                                     } // CLOSE VStack "spacing: 4"
                                     
                                     // Make sure we have a device object
-                                    let isCurrentlyConnected = deviceManager.isConnected && deviceManager.connectionType == .wireless && deviceManager.lastWirelessIP == selectedDeviceIP && !selectedDeviceIP.isEmpty
-
+                                    let isCurrentlyConnected = deviceManager.isConnected && deviceManager.connectionType == .wireless && (deviceManager.lastWirelessIP == activeIP || deviceManager.lastWirelessIP.isEmpty) && !activeIP.isEmpty
                                     
                                     if isCurrentlyConnected {
                                         VStack(spacing: 12) {
@@ -499,6 +501,49 @@ struct WirelessConnectView: View {
                                             }
                                             .buttonStyle(.plain)
                                         }
+                                    } else if let deviceObj = pairingBrowser.discoveredDevices[activeIP], deviceObj.pairingPort == nil, let cPort = deviceObj.connectPort {
+                                        // The device only broadcasted _adb-tls-connect._tcp
+                                        // Meaning it is ALREADY paired natively, we just need to issue the connect command!
+                                        VStack(spacing: 12) {
+                                            HStack(spacing: 8) {
+                                                Image(systemName: "checkmark.shield.fill")
+                                                    .foregroundColor(.blue)
+                                                Text("Device is already paired")
+                                                    .font(.subheadline.weight(.semibold))
+                                                    .foregroundColor(.blue)
+                                            }
+                                            .padding(.bottom, 8)
+                                            
+                                            Button(action: {
+                                                pairingBrowser.status = .pairing
+                                                Task {
+                                                    let (success, _) = await deviceManager.connectWirelessly(ip: activeIP, port: String(cPort))
+                                                    if success {
+                                                        await MainActor.run {
+                                                            pairingBrowser.status = .paired
+                                                            onConnected?()
+                                                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { dismiss() }
+                                                        }
+                                                    } else {
+                                                        await MainActor.run {
+                                                            pairingBrowser.status = .failed("Connection failed. Please re-pair by clicking 'Pair device with pairing code' on your phone.")
+                                                        }
+                                                    }
+                                                }
+                                            }) {
+                                                HStack(spacing: 6) {
+                                                    Image(systemName: "wifi")
+                                                    Text("Connect Wirelessly")
+                                                }
+                                                .font(.body.weight(.medium))
+                                                .foregroundColor(.white)
+                                                .frame(maxWidth: .infinity)
+                                                .padding(.vertical, 10)
+                                                .background(Color.blue)
+                                                .cornerRadius(8)
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
                                     } else {
                                         HStack(spacing: 16) {
                                             VStack(alignment: .leading, spacing: 8) {
@@ -519,28 +564,12 @@ struct WirelessConnectView: View {
                                                     .font(.title3.monospacedDigit())
                                             }
                                         }
-                                    .onChange(of: pairingBrowser.discoveredDevices) { devices in
-                                        // Pick a default if empty or selected vanished
-                                        if selectedDeviceIP.isEmpty, let firstIP = devices.keys.first {
-                                            selectedDeviceIP = firstIP
-                                        } else if !selectedDeviceIP.isEmpty, devices[selectedDeviceIP] == nil, let firstIP = devices.keys.first {
-                                            selectedDeviceIP = firstIP
-                                        }
-                                        
-                                        // Auto-fill pairing port if newly discovered
-                                        if let dev = devices[selectedDeviceIP], let port = dev.pairingPort, visiblePairingPort.isEmpty {
-                                            visiblePairingPort = String(port)
-                                        }
-                                    }
-                                    .onChange(of: selectedDeviceIP) { newIP in
-                                        visiblePairingPort = ""
-                                        if let dev = pairingBrowser.discoveredDevices[newIP], let port = dev.pairingPort {
-                                            visiblePairingPort = String(port)
-                                        }
-                                    }
                                     } // Close 'else' block
                                     
-                                    if !isCurrentlyConnected {
+                                    // Make sure we only show the main pair button if we actually need to pair!
+                                    let needsPairing = !isCurrentlyConnected && !(pairingBrowser.discoveredDevices[activeIP]?.pairingPort == nil && pairingBrowser.discoveredDevices[activeIP]?.connectPort != nil)
+                                    
+                                    if needsPairing {
                                         Button(action: pairWithAutoDiscovery) {
                                             HStack(spacing: 6) {
                                                 Image(systemName: "link")
@@ -555,6 +584,30 @@ struct WirelessConnectView: View {
                                         }
                                         .buttonStyle(.plain)
                                         .disabled(autoPairingCode.count != 6 || visiblePairingPort.isEmpty)
+                                    }
+                                }
+                                .onAppear {
+                                    if selectedDeviceIP.isEmpty, let firstIP = pairingBrowser.discoveredDevices.keys.first {
+                                        selectedDeviceIP = firstIP
+                                    }
+                                    if let dev = pairingBrowser.discoveredDevices[selectedDeviceIP], let port = dev.pairingPort, visiblePairingPort.isEmpty {
+                                        visiblePairingPort = String(port)
+                                    }
+                                }
+                                .onChange(of: pairingBrowser.discoveredDevices) { devices in
+                                    if selectedDeviceIP.isEmpty, let firstIP = devices.keys.first {
+                                        selectedDeviceIP = firstIP
+                                    } else if !selectedDeviceIP.isEmpty, devices[selectedDeviceIP] == nil, let firstIP = devices.keys.first {
+                                        selectedDeviceIP = firstIP
+                                    }
+                                    if let dev = devices[selectedDeviceIP], let port = dev.pairingPort, visiblePairingPort.isEmpty {
+                                        visiblePairingPort = String(port)
+                                    }
+                                }
+                                .onChange(of: selectedDeviceIP) { newIP in
+                                    visiblePairingPort = ""
+                                    if let dev = pairingBrowser.discoveredDevices[newIP], let port = dev.pairingPort {
+                                        visiblePairingPort = String(port)
                                     }
                                 }
                                 .padding(20)
