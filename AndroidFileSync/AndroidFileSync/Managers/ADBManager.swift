@@ -11,12 +11,64 @@ class ADBManager {
     // Track the active device serial for multi-device support
     static var activeDeviceSerial: String?
     
+    // Track if we've already attempted a server restart this session
+    private static var hasRestarted = false
+    
     /// Returns args with -s <serial> prepended if a device serial is set
     static func deviceArgs(_ args: [String]) -> [String] {
         if let serial = activeDeviceSerial {
             return ["-s", serial] + args
         }
         return args
+    }
+    
+    // MARK: - ADB Server Management
+    
+    /// Checks if ADB output indicates a protocol fault or stale server
+    private static func isProtocolError(_ output: String) -> Bool {
+        let lower = output.lowercased()
+        return lower.contains("protocol fault") ||
+               lower.contains("couldn't read status") ||
+               lower.contains("connection reset") ||
+               lower.contains("connection refused") ||
+               lower.contains("cannot connect to daemon") ||
+               lower.contains("adb server didn't ack") ||
+               lower.contains("adb server version") ||
+               lower.contains("kill-server")
+    }
+    
+    /// Kills and restarts the ADB server to clear stale state
+    /// Returns true if server restarted successfully
+    @discardableResult
+    static func restartServer() async -> Bool {
+        let path = getADBPath()
+        guard !path.isEmpty else { return false }
+        
+        print("🔄 ADB: Restarting ADB server...")
+        
+        // Kill the server
+        let (killCode, _, killError) = await Shell.runAsyncWithTimeout(
+            path, args: ["kill-server"], timeoutSeconds: 5.0
+        )
+        print("🔄 ADB: kill-server result: code=\(killCode), error=\(killError)")
+        
+        // Wait for the server to fully shut down
+        try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5s
+        
+        // Start the server
+        let (startCode, startOutput, startError) = await Shell.runAsyncWithTimeout(
+            path, args: ["start-server"], timeoutSeconds: 10.0
+        )
+        print("🔄 ADB: start-server result: code=\(startCode), output=\(startOutput), error=\(startError)")
+        
+        // Wait a moment for the server to be fully ready
+        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s
+        
+        let success = startCode == 0 || startError.lowercased().contains("started successfully")
+        print("🔄 ADB: Server restart \(success ? "✅ succeeded" : "❌ failed")")
+        
+        hasRestarted = true
+        return success
     }
 
     static func getADBPath() -> String {
@@ -753,23 +805,7 @@ class ADBManager {
         }
     }
     
-    // MARK: - QR Code Pairing (Android 11+)
-    
-    /// Generates QR code pairing data in the format Android expects
-    /// Returns: (qrString, serviceName, password)
-    static func generateQRPairingData() -> (String, String, String) {
-        // Generate a random service name and password
-        let chars = "abcdefghijklmnopqrstuvwxyz0123456789"
-        let serviceName = "afs-" + String((0..<6).map { _ in chars.randomElement()! })
-        let password = String((0..<6).map { _ in chars.randomElement()! })
-        
-        // Android expects this exact format for QR code pairing
-        let qrString = "WIFI:T:ADB;S:\(serviceName);P:\(password);;"
-        
-        print("📶 QR: Generated pairing data - service=\(serviceName), password=\(password)")
-        return (qrString, serviceName, password)
-    }
-    
+
     // MARK: - Wireless ADB (Android 11+)
     
     /// Pairs with an Android 11+ device using wireless debugging
@@ -788,16 +824,33 @@ class ADBManager {
         print("📶 ADB: Pairing with \(target)...")
         
         // adb pair <ip>:<port> <code>
-        let (exitCode, output, error) = await Shell.runAsyncWithTimeout(
+        var (exitCode, output, error) = await Shell.runAsyncWithTimeout(
             adbPath,
             args: ["pair", target, code],
             timeoutSeconds: 15.0
         )
         
-        let combined = output + error
+        var combined = output + error
         print("📶 ADB Pair result: code=\(exitCode), output=\(combined)")
         
+        // Auto-recover from protocol faults by restarting ADB server and retrying
+        if isProtocolError(combined) {
+            print("🔄 ADB: Protocol fault during pairing, restarting server and retrying...")
+            let restarted = await restartServer()
+            if restarted {
+                // Retry the pairing
+                (exitCode, output, error) = await Shell.runAsyncWithTimeout(
+                    adbPath,
+                    args: ["pair", target, code],
+                    timeoutSeconds: 15.0
+                )
+                combined = output + error
+                print("📶 ADB Pair retry result: code=\(exitCode), output=\(combined)")
+            }
+        }
+        
         if exitCode == 0 && (combined.lowercased().contains("successfully paired") || combined.lowercased().contains("paired")) {
+            hasRestarted = false // Reset for next session
             return (true, "Successfully paired with device")
         } else if combined.lowercased().contains("failed") {
             return (false, "Pairing failed. Check the pairing code and try again.")
