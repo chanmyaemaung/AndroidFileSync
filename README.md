@@ -11,10 +11,12 @@ No cloud. No Google account needed. Plug in via USB or scan a QR code to connect
 ### Connectivity
 - **USB Connection** — Plug in and go, zero config
 - **Wireless ADB (Android 11+)** — Connect over WiFi without a cable
-- **QR Code Pairing** — Generate a QR code, scan from your phone, instantly paired
-- **Manual Pairing** — Enter IP, port, and pairing code for full control
-- **Multi-Device Support** — Handles USB + WiFi connections simultaneously
+- **Zero-Latency Auto-Discovery** — Instantly find pairable network devices
+- **Advanced Pairing Mode** — Explicitly enter IP, port, and pairing code for complex setups or VPNs
 
+- **Smart Wi-Fi Multi-Device Selector** — Effortlessly juggle multiple Android phones attached to the same network directly from a dropdown
+
+- **Context-Aware WiFi Connect** — Easily "Disconnect" devices natively if they're currently tied up on the network
 ### File Management
 - **File Browser** — Browse your phone's storage like a native Finder window
 - **Drag & Drop** — Drag files from Finder straight to your phone
@@ -69,22 +71,20 @@ No cloud. No Google account needed. Plug in via USB or scan a QR code to connect
 2. Tap the **USB notification** (e.g., "Charging this device via USB")
 3. Select **File Transfer / MTP**
 
-### Wireless Connection (Android 11+)
-
-#### QR Code Pairing (Easiest)
+#### Auto-Discovery Pairing (Easiest)
 
 1. On your phone: **Developer Options → Wireless Debugging → ON**
-2. Tap **Pair device with QR code**
-3. In the app: Click **WiFi** button → **QR Code** tab → **Generate QR Code**
-4. Scan the QR code with your phone — connection is automatic
+2. Tap **Pair device with pairing code**
+3. In the app: The **Auto-Discovery** tab will securely detect your IP and automatically pre-fill your `Pairing Port`.
+4. Enter the **6-digit code** shown on your phone and click **Pair & Connect**.
 
-#### Manual Pairing
+> **Multiple Devices?** If multiple phones are broadcasting on the network, a seamless dropdown Selector will appear allowing you to select your target IP visually.
+
+#### Advanced Pairing
 
 1. On your phone: **Developer Options → Wireless Debugging → ON**
 2. Tap **Pair device with pairing code** — note the IP, port, and code
-3. In the app: Click **WiFi** button → **Manual** tab → Enter the details
-
-> Both devices must be on the same WiFi network.
+3. In the app: Click **WiFi** button → **Advanced** tab → Manually enter the network details
 
 ## Installation
 
