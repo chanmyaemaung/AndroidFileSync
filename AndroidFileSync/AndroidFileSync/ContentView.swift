@@ -10,6 +10,8 @@
 
 import SwiftUI
 internal import Combine
+import UniformTypeIdentifiers
+import AppKit
 
 struct ContentView: View {
     // Observe managers from App to react to state changes
@@ -17,6 +19,7 @@ struct ContentView: View {
     @ObservedObject var downloadManager: DownloadManager
     @ObservedObject var uploadManager: UploadManager
     @StateObject private var filePreviewManager = FilePreviewManager()
+    @StateObject private var sidebarManager = SidebarManager()
 
     @State private var files: [UnifiedFile] = []
     @State private var currentPath = "/sdcard"
@@ -28,6 +31,9 @@ struct ContentView: View {
     @StateObject private var fileActionManager = FileActionManager()
     @State private var showErrorAlert = false
     @State private var errorMessage = ""
+    
+    // Paste conflict alert
+    @State private var showConflictAlert = false
     
     // Multi-selection state
     @State private var selectedFiles: Set<UUID> = []
@@ -90,106 +96,114 @@ struct ContentView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Your HeaderView
-            HeaderView(deviceManager: deviceManager, downloadManager: downloadManager, uploadManager: uploadManager, showWirelessConnect: $showWirelessConnect)
-            Divider()
+        contentWithPresentations
+    }
 
-            // Main Content
-            if deviceManager.isConnected {
-                HSplitView {
-                    SidebarView(
-                        quickAccessItems: QuickAccessItem.commonFolders,
-                        currentPath: currentPath,
-                        onNavigate: navigateTo,
-                        trashCount: fileActionManager.trashedItems.count,
-                        onOpenTrash: { showTrashView = true }
-                    )
-                    
-                    VStack(spacing: 0) {
-                        // Action Toolbar
-                        ActionToolbar(
-                            currentPath: currentPath,
-                            fileActionManager: fileActionManager,
-                            onRefresh: { await loadFiles() },
-                            searchQuery: $searchQuery,
-                            totalFileCount: files.count,
-                            filteredFileCount: filteredFiles.count,
-                            selectedSort: sortOption,
-                            onSortChanged: { option in
-                                sortFiles(by: option)
-                            }
-                        )
-                        Divider()
-                        
-                        // File Browser
-                        FileBrowserView(
-                            files: filteredFiles,
-                            currentPath: currentPath,
-                            isLoading: isLoading,
-                            canGoBack: !pathHistory.isEmpty,
-                            selectedFiles: $selectedFiles,
-                            onNavigate: navigateTo,
-                            onGoBack: navigateBack,
-                            onDownload: handleDownload,
-                            onUpload: handleUpload,
-                            onDelete: handleDelete,
-                            onRename: handleRename,
-                            onPreview: { file in filePreviewManager.previewFile(file) },
-                            onBatchDelete: handleBatchDelete,
-                            onBatchDownload: handleBatchDownload,
-                            onBatchChangeExtension: { ext in handleBatchChangeExtension(ext) },
-                            onCopy: { files in fileActionManager.copyToClipboard(files) },
-                            onCut: { files in fileActionManager.cutToClipboard(files) },
-                            sortOption: sortOption,
-                            onSortChange: { option in sortFiles(by: option) }
-                        )
-                        
-                        // Preview loading overlay
-                        if filePreviewManager.isLoading {
-                            VStack(spacing: 12) {
-                                ProgressView()
-                                    .scaleEffect(1.2)
-                                Text("Loading preview...")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                                Text(filePreviewManager.loadingFileName)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                            }
-                            .padding(24)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(.ultraThinMaterial)
-                            )
-                        }
+    // Level 1: presentation modifiers (alerts + sheets + keyboard shortcuts)
+    // Split from body to stay under Swift type-checker expression complexity limit
+    private var contentWithPresentations: some View {
+        contentWithAlerts
+            .sheet(isPresented: $showTrashView) {
+                TrashView(fileActionManager: fileActionManager)
+                    .frame(width: 450, height: 400)
+            }
+            .sheet(isPresented: $showWirelessConnect) {
+                WirelessConnectView(deviceManager: deviceManager, onConnected: {
+                    Task {
+                        currentPath = await deviceManager.getRealStoragePath()
+                        await loadFiles()
+                    }
+                })
+            }
+            .background(
+                Group {
+                    Button("") { handleGlobalCopy() }.keyboardShortcut("c", modifiers: .command)
+                    Button("") { handleGlobalCut() }.keyboardShortcut("x", modifiers: .command)
+                    Button("") { handleGlobalPaste() }.keyboardShortcut("v", modifiers: .command)
+                }
+                .hidden()
+            )
+    }
+
+    // Level 2: alert modifiers
+    private var contentWithAlerts: some View {
+        layoutContent
+            .alert("Error", isPresented: $showErrorAlert) {
+                Button("OK", role: .cancel) { fileActionManager.clearError() }
+            } message: {
+                Text(errorMessage)
+            }
+            .alert(pasteConflictTitle, isPresented: $showConflictAlert) {
+                Button("Replace") {
+                    Task {
+                        try? await fileActionManager.resumePaste(resolution: .replace)
+                        await loadFiles()
                     }
                 }
+                Button("Keep Both") {
+                    Task {
+                        try? await fileActionManager.resumePaste(resolution: .keepBoth)
+                        await loadFiles()
+                    }
+                }
+                Button("Skip", role: .cancel) {
+                    Task {
+                        try? await fileActionManager.resumePaste(resolution: .skip)
+                        await loadFiles()
+                    }
+                }
+            } message: {
+                Text(pasteConflictMessage)
+            }
+            .onChange(of: fileActionManager.pasteConflicts.count) { newCount in
+                showConflictAlert = newCount > 0
+            }
+    }
+
+    // Level 3: layout + input modifiers
+    private var layoutContent: some View {
+        VStack(spacing: 0) {
+            HeaderView(
+                deviceManager: deviceManager,
+                downloadManager: downloadManager,
+                uploadManager: uploadManager,
+                showWirelessConnect: $showWirelessConnect
+            )
+            Divider()
+
+            if deviceManager.isConnected {
+                connectedContent
             } else {
-                // Empty state with retry button
                 EmptyStateView(
                     isDetecting: deviceManager.isDetecting,
-                    onRetry: {
-                        Task {
-                            await initializeDevice()
-                        }
-                    },
-                    onConnectWiFi: {
-                        showWirelessConnect = true
-                    }
+                    onRetry: { Task { await initializeDevice() } },
+                    onConnectWiFi: { showWirelessConnect = true }
                 )
             }
-            
-            // Enhanced Progress Views with Speed and Details (Isolated)
+
             TransferProgressContainer(
                 downloadManager: downloadManager,
-                uploadManager: uploadManager
+                uploadManager: uploadManager,
+                deviceManager: deviceManager
             )
         }
         .frame(minWidth: 800, minHeight: 600)
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            var fileURLs: [URL] = []
+            let group = DispatchGroup()
+            for provider in providers {
+                group.enter()
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    if let u = url { fileURLs.append(u) }
+                    group.leave()
+                }
+            }
+            group.notify(queue: .main) {
+                if !fileURLs.isEmpty { handleUpload(urls: fileURLs) }
+            }
+            return true
+        }
         .task { await initializeDevice() }
-        // Auto-retry timer when not connected
         .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
             if !deviceManager.isConnected && !deviceManager.isDetecting {
                 Task {
@@ -201,41 +215,139 @@ struct ContentView: View {
                 }
             }
         }
-        .alert("Error", isPresented: $showErrorAlert) {
-            Button("OK", role: .cancel) {
-                fileActionManager.clearError()
+    }
+
+    // Extracted to keep `body` chain under Swift complexity limit
+    @ViewBuilder
+    private var connectedContent: some View {
+        HSplitView {
+            SidebarView(
+                sidebarManager: sidebarManager,
+                currentPath: currentPath,
+                onNavigate: navigateTo,
+                trashCount: fileActionManager.trashedItems.count,
+                onOpenTrash: { showTrashView = true }
+            )
+
+            ZStack {
+                VStack(spacing: 0) {
+                    ActionToolbar(
+                        currentPath: currentPath,
+                        fileActionManager: fileActionManager,
+                        onRefresh: { await loadFiles() },
+                        searchQuery: $searchQuery,
+                        totalFileCount: files.count,
+                        filteredFileCount: filteredFiles.count,
+                        selectedSort: sortOption,
+                        onSortChanged: { option in sortFiles(by: option) }
+                    )
+                    Divider()
+                    FileBrowserView(
+                        files: filteredFiles,
+                        currentPath: currentPath,
+                        isLoading: isLoading,
+                        canGoBack: !pathHistory.isEmpty,
+                        selectedFiles: $selectedFiles,
+                        onNavigate: navigateTo,
+                        onGoBack: navigateBack,
+                        onDownload: handleDownload,
+                        onUpload: handleUpload,
+                        onDelete: handleDelete,
+                        onRename: handleRename,
+                        onPreview: { file in filePreviewManager.previewFile(file) },
+                        onBatchDelete: handleBatchDelete,
+                        onBatchDownload: handleBatchDownload,
+                        onBatchChangeExtension: { ext in handleBatchChangeExtension(ext) },
+                        onCopy: { files in fileActionManager.copyToClipboard(files) },
+                        onCut: { files in fileActionManager.cutToClipboard(files) },
+                        onDownloadFolder: handleFolderDownload,
+                        onAddToSidebar: { folder in
+                            sidebarManager.addItem(
+                                name: folder.name,
+                                path: folder.path,
+                                icon: "folder.fill",
+                                color: "blue"
+                            )
+                        },
+                        sortOption: sortOption,
+                        onSortChange: { option in sortFiles(by: option) }
+                    )
+                }
+
+                if filePreviewManager.isLoading {
+                    VStack(spacing: 12) {
+                        ProgressView().scaleEffect(1.2)
+                        Text("Loading preview...").font(.subheadline).foregroundColor(.secondary)
+                        Text(filePreviewManager.loadingFileName)
+                            .font(.caption).foregroundColor(.secondary).lineLimit(1)
+                    }
+                    .padding(24)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
+                }
             }
-        } message: {
-            Text(errorMessage)
         }
-        // Trash view sheet
-        .sheet(isPresented: $showTrashView, onDismiss: {
-            // Refresh file list after closing trash (in case files were restored)
+    }
+
+        // MARK: - Computed Properties for Alerts
+    
+    private var pasteConflictTitle: String {
+        let count = fileActionManager.pasteConflicts.count
+        if count == 1 {
+            if let first = fileActionManager.pasteConflicts.first {
+                return "“\(first.file.name)” already exists"
+            }
+            return "File already exists"
+        }
+        return "\(count) items already exist"
+    }
+    
+    private var pasteConflictMessage: String {
+        let count = fileActionManager.pasteConflicts.count
+        if count == 1 {
+            let name = fileActionManager.pasteConflicts.first?.file.name ?? ""
+            return "\"\(name)\" already exists at the destination. Replace it, keep both files, or skip?"
+        }
+        return "\(count) files already exist at the destination. Choose how to proceed for all of them."
+    }
+
+    // MARK: - Global Actions
+    
+    private func handleGlobalCopy() {
+        let items = files.filter { selectedFiles.contains($0.id) }
+        if items.isEmpty {
+            print("⌘C: No matching files in current listing (selectedFiles=\(selectedFiles.count), files=\(files.count))")
+            return
+        }
+        print("⌘C: Copying \(items.count) item(s): \(items.map(\.name))")
+        fileActionManager.copyToClipboard(items)
+    }
+    
+    private func handleGlobalCut() {
+        let items = files.filter { selectedFiles.contains($0.id) }
+        if items.isEmpty {
+            print("⌘X: No matching files in current listing")
+            return
+        }
+        print("⌘X: Cutting \(items.count) item(s): \(items.map(\.name))")
+        fileActionManager.cutToClipboard(items)
+    }
+    
+    private func handleGlobalPaste() {
+        if !fileActionManager.clipboard.isEmpty {
+            // Internal paste — sequential: paste first, then refresh once.
             Task {
+                do {
+                    try await fileActionManager.paste(to: currentPath)
+                } catch {
+                    print("❌ Paste failed: \(error.localizedDescription)")
+                }
                 await loadFiles()
             }
-        }) {
-            TrashView(fileActionManager: fileActionManager)
-                .frame(width: 450, height: 400)
-        }
-        // Wireless connect sheet
-        .sheet(isPresented: $showWirelessConnect, onDismiss: {
-            Task {
-                if deviceManager.isConnected {
-                    currentPath = await deviceManager.getRealStoragePath()
-                    await loadFiles()
-                }
-            }
-        }) {
-            WirelessConnectView(
-                deviceManager: deviceManager,
-                onConnected: {
-                    Task {
-                        currentPath = await deviceManager.getRealStoragePath()
-                        await loadFiles()
-                    }
-                }
-            )
+        } else {
+            // Finder drag-paste: read URLs from Mac pasteboard
+            guard let urls = NSPasteboard.general.readObjects(forClasses: [NSURL.self], options: nil) as? [URL],
+                  !urls.isEmpty else { return }
+            handleUpload(urls: urls)
         }
     }
     
@@ -292,13 +404,14 @@ struct ContentView: View {
         // Cancel any in-progress load
         loadTask?.cancel()
         
+        // Clear selection — UUIDs are re-generated on every listFiles call,
+        // so stale IDs would match nothing (or wrong files) in the new folder.
+        selectedFiles.removeAll()
+        
         pathHistory.append(currentPath)
         currentPath = path
-        
-        // Show loading but keep old files visible
         isLoading = true
         
-        // Force completely off main thread
         loadTask = Task.detached(priority: .userInitiated) {
             await self.loadFiles()
         }
@@ -307,15 +420,14 @@ struct ContentView: View {
     private func navigateBack() {
         guard let previousPath = pathHistory.popLast() else { return }
         
-        // Cancel any in-progress load
         loadTask?.cancel()
         
-        currentPath = previousPath
+        // Clear selection on back navigation for the same reason.
+        selectedFiles.removeAll()
         
-        // Show loading but keep old files visible
+        currentPath = previousPath
         isLoading = true
         
-        // Force completely off main thread
         loadTask = Task.detached(priority: .userInitiated) {
             await self.loadFiles()
         }
@@ -353,21 +465,62 @@ struct ContentView: View {
         let path = self.currentPath
         
         Task {
-            var filesToUpload: [(localPath: String, fileName: String, fileSize: UInt64)] = []
+            // Single unified list: every file gets its own device path
+            var allItems: [(localPath: String, fileName: String, fileSize: UInt64, devicePath: String)] = []
+            var remoteDirsToCreate: Set<String> = []
             
             for url in urls {
-                guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-                      let size = attrs[.size] as? UInt64 else { 
-                    print("⚠️ Could not get file size for: \(url.lastPathComponent)")
-                    continue 
+                var isDir: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else {
+                    print("⚠️ File does not exist: \(url.lastPathComponent)")
+                    continue
                 }
-                filesToUpload.append((url.path, url.lastPathComponent, size))
+                
+                if isDir.boolValue {
+                    // Folder: enumerate all files locally, add each with its unique remote path
+                    let basePath = url.path
+                    let remoteFolderBase = (path.hasSuffix("/") ? path : path + "/") + url.lastPathComponent
+                    remoteDirsToCreate.insert(remoteFolderBase)
+                    
+                    guard let enumerator = FileManager.default.enumerator(
+                        at: url,
+                        includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+                        options: [.skipsHiddenFiles]
+                    ) else { continue }
+                    
+                    for case let fileURL as URL in enumerator {
+                        guard let rv = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                              rv.isRegularFile == true else { continue }
+                        
+                        let relativePath = String(fileURL.path.dropFirst(basePath.count + 1))
+                        let remoteFilePath = remoteFolderBase + "/" + relativePath
+                        let remoteDir = (remoteFilePath as NSString).deletingLastPathComponent
+                        remoteDirsToCreate.insert(remoteDir)
+                        
+                        let size = UInt64(rv.fileSize ?? 0)
+                        let fileName = (relativePath as NSString).lastPathComponent
+                        allItems.append((localPath: fileURL.path, fileName: fileName, fileSize: size, devicePath: remoteDir))
+                    }
+                } else {
+                    // Regular file: goes to current directory
+                    guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                          let size = attrs[.size] as? UInt64 else {
+                        print("⚠️ Could not get file size for: \(url.lastPathComponent)")
+                        continue
+                    }
+                    allItems.append((localPath: url.path, fileName: url.lastPathComponent, fileSize: size, devicePath: path))
+                }
             }
             
-            await manager.uploadMultipleFiles(
-                files: filesToUpload,
-                toDirectory: path
-            )
+            guard !allItems.isEmpty else { return }
+            
+            // 1. Batch create ALL remote directories in 1-2 ADB calls
+            if !remoteDirsToCreate.isEmpty {
+                await ADBManager.batchCreateFolders(paths: Array(remoteDirsToCreate))
+            }
+            
+            // 2. Single parallel upload — everything together
+            await manager.uploadFilesToPaths(files: allItems)
             
             // Refresh file list after upload
             try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -434,13 +587,16 @@ struct ContentView: View {
     }
     
     private func handleBatchDownload() {
-        let filesToDownload = files.filter { selectedFiles.contains($0.id) && !$0.isDirectory }
+        let selectedItems = files.filter { selectedFiles.contains($0.id) }
         
-        guard !filesToDownload.isEmpty else {
-            errorMessage = "No downloadable files selected (folders cannot be downloaded)"
+        guard !selectedItems.isEmpty else {
+            errorMessage = "No files or folders selected."
             showErrorAlert = true
             return
         }
+        
+        let selectedFolders = selectedItems.filter { $0.isDirectory }
+        let selectedFileItems = selectedItems.filter { !$0.isDirectory }
         
         let openPanel = NSOpenPanel()
         openPanel.canChooseDirectories = true
@@ -448,29 +604,102 @@ struct ContentView: View {
         openPanel.canCreateDirectories = true
         openPanel.allowsMultipleSelection = false
         openPanel.title = "Select Download Folder"
-        openPanel.message = "Choose where to save \(filesToDownload.count) file(s)"
+        openPanel.message = "Choose where to save \(selectedItems.count) item(s)"
         
         openPanel.begin { response in
             guard response == .OK, let directory = openPanel.url else { return }
             
-            // Prepare files for parallel download
-            let downloadItems = filesToDownload.map { file in
-                (
-                    devicePath: file.path,
-                    fileName: file.name,
-                    fileSize: file.size,
-                    localPath: directory.appendingPathComponent(file.name).path
-                )
-            }
-            
             Task {
-                // Use the new parallel download method
-                await downloadManager.downloadMultipleFiles(files: downloadItems)
+                // Build one unified download list
+                var allItems: [(devicePath: String, fileName: String, fileSize: UInt64, localPath: String)] = []
                 
-                // Clear selection after all downloads complete
-                await MainActor.run {
-                    selectedFiles.removeAll()
+                // 1. Add individual files
+                for file in selectedFileItems {
+                    allItems.append((
+                        devicePath: file.path,
+                        fileName: file.name,
+                        fileSize: file.size,
+                        localPath: directory.appendingPathComponent(file.name).path
+                    ))
                 }
+                
+                // 2. Scan each folder and add its contents
+                for folder in selectedFolders {
+                    // Show scanning state
+                    await MainActor.run {
+                        downloadManager.isScanning = true
+                        downloadManager.scanningFolderName = folder.name
+                    }
+                    
+                    do {
+                        let folderFiles = try await ADBManager.listAllFilesRecursively(path: folder.path)
+                        let destination = directory.appendingPathComponent(folder.name)
+                        
+                        for file in folderFiles {
+                            let localFileURL = destination.appendingPathComponent(file.relativePath)
+                            let localDir = localFileURL.deletingLastPathComponent()
+                            try? FileManager.default.createDirectory(at: localDir, withIntermediateDirectories: true)
+                            
+                            let fileName = (file.relativePath as NSString).lastPathComponent
+                            allItems.append((
+                                devicePath: file.devicePath,
+                                fileName: fileName,
+                                fileSize: file.size,
+                                localPath: localFileURL.path
+                            ))
+                        }
+                    } catch {
+                        print("❌ Failed to scan folder \(folder.name): \(error)")
+                    }
+                }
+                
+                await MainActor.run {
+                    downloadManager.isScanning = false
+                    downloadManager.scanningFolderName = ""
+                }
+                
+                guard !allItems.isEmpty else {
+                    await MainActor.run {
+                        errorMessage = "No files found to download."
+                        showErrorAlert = true
+                    }
+                    return
+                }
+                
+                // Set folder name for UI if we downloaded any folders
+                if !selectedFolders.isEmpty {
+                    await MainActor.run {
+                        downloadManager.currentFolderName = selectedFolders.count == 1
+                            ? selectedFolders.first!.name
+                            : "\(selectedFolders.count) folders"
+                    }
+                }
+                
+                // Single unified download call — correct count from the start
+                await downloadManager.downloadMultipleFiles(files: allItems)
+                await MainActor.run { selectedFiles.removeAll() }
+            }
+        }
+    }
+    
+    private func handleFolderDownload(_ folder: UnifiedFile) {
+        let openPanel = NSOpenPanel()
+        openPanel.canChooseDirectories = true
+        openPanel.canChooseFiles = false
+        openPanel.canCreateDirectories = true
+        openPanel.allowsMultipleSelection = false
+        openPanel.title = "Select Download Location"
+        openPanel.message = "Folder '\(folder.name)' will be saved here, preserving its structure."
+        
+        openPanel.begin { response in
+            guard response == .OK, let directory = openPanel.url else { return }
+            let destination = directory.appendingPathComponent(folder.name)
+            Task {
+                await downloadManager.downloadFolder(
+                    devicePath: folder.path,
+                    folderName: folder.name,
+                    to: destination
+                )
             }
         }
     }

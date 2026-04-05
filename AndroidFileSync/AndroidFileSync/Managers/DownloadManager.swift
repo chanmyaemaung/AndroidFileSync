@@ -14,9 +14,27 @@ class DownloadManager: ObservableObject {
     @Published var batchCompleted: Int = 0
     @Published var isBatchDownloading: Bool = false
     
+    // Live-adjustable concurrency (1-8 slots), persisted across launches
+    @Published var maxConcurrent: Int {
+        didSet { UserDefaults.standard.set(maxConcurrent, forKey: "maxConcurrentDownloads") }
+    }
+    
+    // Folder scan state — shown in progress panel while enumerating
+    @Published var isScanning: Bool = false
+    @Published var scanningFolderName: String = ""
+    @Published var currentFolderName: String = ""  // set while a folder batch is running
+    
+    // Batch cancellation
+    private var isBatchCancelled: Bool = false
+    
     // Store active tasks for cancellation (Key: devicePath)
     private var activeTasks: [String: Task<Void, Never>] = [:]
     private let taskLock = NSLock()
+    
+    init() {
+        let saved = UserDefaults.standard.integer(forKey: "maxConcurrentDownloads")
+        self.maxConcurrent = saved > 0 ? min(max(saved, 1), 8) : 3
+    }
     
     // Thread-safe storage for progress updates from background
     private let progressLock = NSLock()
@@ -128,6 +146,42 @@ class DownloadManager: ObservableObject {
             // Clear background progress
             self?.progressLock.lock()
             self?.backgroundProgress.removeValue(forKey: devicePath)
+            self?.progressLock.unlock()
+        }
+    }
+    
+    /// Cancels all active downloads and aborts batch loop
+    func cancelAllDownloads() {
+        print("🛑 Cancelling ALL downloads")
+        isBatchCancelled = true
+        
+        taskLock.lock()
+        let allTasks = activeTasks
+        activeTasks.removeAll()
+        taskLock.unlock()
+        
+        for (_, task) in allTasks {
+            task.cancel()
+        }
+        
+        // Mark all as cancelled
+        for key in activeDownloads.keys {
+            activeDownloads[key]?.isCancelled = true
+        }
+        
+        // Clear after brief delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.activeDownloads.removeAll()
+            self?.isBatchDownloading = false
+            self?.batchTotal = 0
+            self?.batchCompleted = 0
+            self?.currentFolderName = ""
+            self?.isScanning = false
+            self?.scanningFolderName = ""
+            self?.stopTimerIfNeeded()
+            
+            self?.progressLock.lock()
+            self?.backgroundProgress.removeAll()
             self?.progressLock.unlock()
         }
     }
@@ -304,14 +358,11 @@ class DownloadManager: ObservableObject {
         return downloadTask
     }
     
-    /// Downloads multiple files in parallel with a sliding window approach
-    /// - Parameters:
-    ///   - files: Array of tuples containing (devicePath, fileName, fileSize, localPath)
-    ///   - maxConcurrent: Maximum number of concurrent downloads (default: 5)
-    ///                    As soon as one download completes, the next file starts immediately
+    /// Downloads multiple files in parallel with a sliding window approach.
+    /// Reads `maxConcurrent` dynamically so live adjustments take effect on the next slot.
     func downloadMultipleFiles(
         files: [(devicePath: String, fileName: String, fileSize: UInt64, localPath: String)],
-        maxConcurrent: Int = 5
+        maxConcurrent fixedMax: Int? = nil   // nil = use self.maxConcurrent (live)
     ) async {
         guard !files.isEmpty else { return }
         
@@ -322,15 +373,19 @@ class DownloadManager: ObservableObject {
             isBatchDownloading = true
         }
         
-        print("📥 Starting parallel download of \(files.count) files (max concurrent: \(maxConcurrent))")
+        print("📥 Starting parallel download of \(files.count) files")
+        isBatchCancelled = false
         
         await withTaskGroup(of: Void.self) { group in
             var runningCount = 0
             var fileIndex = 0
             
-            while fileIndex < files.count {
-                // Fill up to maxConcurrent slots
-                while runningCount < maxConcurrent && fileIndex < files.count {
+            while fileIndex < files.count && !isBatchCancelled {
+                // Re-read limit each iteration so live slider changes take effect
+                let limit = fixedMax ?? self.maxConcurrent
+                
+                // Fill up to limit slots
+                while runningCount < limit && fileIndex < files.count {
                     let file = files[fileIndex]
                     fileIndex += 1
                     runningCount += 1
@@ -345,37 +400,83 @@ class DownloadManager: ObservableObject {
                                 fileSize: file.fileSize,
                                 to: file.localPath
                             )
-                            // Increment completed count on success
-                            await MainActor.run {
-                                self.batchCompleted += 1
-                            }
+                            await MainActor.run { self.batchCompleted += 1 }
                         } catch {
                             print("❌ Failed to download \(file.fileName): \(error)")
-                            // Still increment completed (even if failed) to track progress
-                            await MainActor.run {
-                                self.batchCompleted += 1
-                            }
+                            await MainActor.run { self.batchCompleted += 1 }
                         }
                     }
                 }
                 
-                // Wait for ONE download to complete, then immediately start the next
-                // This ensures we always maintain maxConcurrent active downloads
-                if runningCount >= maxConcurrent && fileIndex < files.count {
+                // Wait for ONE slot to free before looping
+                if runningCount >= limit && fileIndex < files.count {
                     await group.next()
                     runningCount -= 1
                 }
             }
             
-            // Wait for remaining downloads to complete
             await group.waitForAll()
         }
         
-        // Reset batch tracking
         await MainActor.run {
             isBatchDownloading = false
+            currentFolderName = ""
         }
         
         print("✅ All \(files.count) downloads completed")
+    }
+    
+    // MARK: - Folder Download
+    
+    /// Recursively scans `devicePath` on the Android device then downloads the whole tree,
+    /// preserving the directory structure under `localDirectory`.
+    func downloadFolder(devicePath: String, folderName: String, to localDirectory: URL) async {
+        // Show scanning state
+        await MainActor.run {
+            isScanning = true
+            scanningFolderName = folderName
+        }
+        
+        let files: [(devicePath: String, relativePath: String, size: UInt64)]
+        do {
+            files = try await ADBManager.listAllFilesRecursively(path: devicePath)
+        } catch {
+            print("❌ Folder scan failed: \(error)")
+            await MainActor.run { isScanning = false; scanningFolderName = "" }
+            return
+        }
+        
+        await MainActor.run {
+            isScanning = false
+            scanningFolderName = ""
+            currentFolderName = folderName
+        }
+        
+        guard !files.isEmpty else {
+            print("📂 Folder is empty, nothing to download.")
+            await MainActor.run { currentFolderName = "" }
+            return
+        }
+        
+        // Build local directory structure and collect download items
+        var downloadItems: [(devicePath: String, fileName: String, fileSize: UInt64, localPath: String)] = []
+        
+        for file in files {
+            let localFileURL = localDirectory.appendingPathComponent(file.relativePath)
+            let localDir = localFileURL.deletingLastPathComponent()
+            try? FileManager.default.createDirectory(at: localDir, withIntermediateDirectories: true)
+            
+            // Use just the last path component as display name
+            let fileName = (file.relativePath as NSString).lastPathComponent
+            downloadItems.append((
+                devicePath: file.devicePath,
+                fileName: fileName,
+                fileSize: file.size,
+                localPath: localFileURL.path
+            ))
+        }
+        
+        print("📂 Downloading folder '\(folderName)': \(downloadItems.count) files → \(localDirectory.path)")
+        await downloadMultipleFiles(files: downloadItems)
     }
 }

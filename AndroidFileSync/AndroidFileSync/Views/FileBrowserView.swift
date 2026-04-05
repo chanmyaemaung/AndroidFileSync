@@ -24,6 +24,9 @@ struct FileBrowserView: View, Equatable {
     let onBatchChangeExtension: ((String) -> Void)?
     var onCopy: (([UnifiedFile]) -> Void)? = nil
     var onCut: (([UnifiedFile]) -> Void)? = nil
+    var onDownloadFolder: ((UnifiedFile) -> Void)? = nil
+    /// Called when the user chooses "Add to Sidebar" from the folder context menu
+    var onAddToSidebar: ((UnifiedFile) -> Void)? = nil
     
     // Sorting support
     var sortOption: ActionToolbar.SortOption = .name
@@ -108,19 +111,19 @@ struct FileBrowserView: View, Equatable {
         }
         // Change extension alert
         .alert("Change Extension", isPresented: $showExtensionDialog) {
-            TextField("New extension (e.g., jpg, png)", text: $newExtension)
+            TextField("New Extension", text: $newExtension)
+                .autocorrectionDisabled()
             Button("Cancel", role: .cancel) {
                 newExtension = ""
             }
-            Button("Apply") {
+            Button("Change") {
                 if !newExtension.isEmpty {
-                    let ext = newExtension.hasPrefix(".") ? String(newExtension.dropFirst()) : newExtension
-                    onBatchChangeExtension?(ext)
+                    onBatchChangeExtension?(newExtension)
                 }
                 newExtension = ""
             }
         } message: {
-            Text("Change extension for all selected files")
+            Text("Enter new extension (e.g. txt, jpg) for \(selectedFiles.count) files.")
         }
         // Batch delete confirmation alert
         .alert("Move \(batchDeleteCount) items to Trash?", isPresented: $showBatchDeleteConfirmation) {
@@ -235,6 +238,25 @@ struct FileBrowserView: View, Equatable {
             }
             return true
         }
+        .background(
+            Group {
+                Button("") { handleDeleteShortcut() }.keyboardShortcut(.delete, modifiers: .command)
+                Button("") { handleDeleteShortcut() }.keyboardShortcut(.delete, modifiers: [])
+            }.hidden()
+        )
+    }
+    
+    private func handleDeleteShortcut() {
+        let items = files.filter { selectedFiles.contains($0.id) }
+        guard !items.isEmpty else { return }
+        
+        if items.count == 1 {
+            fileToDelete = items.first
+            showDeleteConfirmation = true
+        } else {
+            batchDeleteCount = items.count
+            showBatchDeleteConfirmation = true
+        }
     }
     
     private var emptyFolderView: some View {
@@ -280,6 +302,7 @@ struct FileBrowserView: View, Equatable {
                     // Context menu for selected items
                     let selectedItems = files.filter { selectedIds.contains($0.id) }
                     let isSingleSelection = selectedIds.count <= 1
+                    let hasOnlyFiles = !selectedItems.isEmpty && selectedItems.allSatisfy { !$0.isDirectory }
                     
                     if let firstItem = selectedItems.first {
                         // Preview option (for single previewable files)
@@ -292,6 +315,7 @@ struct FileBrowserView: View, Equatable {
                             Divider()
                         }
                         
+                        // Download
                         if !firstItem.isDirectory || !isSingleSelection {
                             Button(isSingleSelection ? "Download" : "Download Selected") {
                                 if isSingleSelection, let file = selectedItems.first, !file.isDirectory {
@@ -303,7 +327,58 @@ struct FileBrowserView: View, Equatable {
                             Divider()
                         }
                         
-                        Button("Move to Trash", role: .destructive) {
+                        // Folder download option
+                        if isSingleSelection && firstItem.isDirectory {
+                            Button {
+                                onDownloadFolder?(firstItem)
+                            } label: {
+                                Label("Download Folder", systemImage: "folder.badge.gearshape")
+                            }
+
+                            // ── Add to Sidebar ──────────────────────────────
+                            Button {
+                                onAddToSidebar?(firstItem)
+                            } label: {
+                                Label("Add to Sidebar", systemImage: "sidebar.left")
+                            }
+
+                            Divider()
+                        }
+                        
+                        // Copy
+                        Button(isSingleSelection ? "Copy" : "Copy \(selectedIds.count) items") {
+                            let items = isSingleSelection ? [firstItem] : selectedItems
+                            onCopy?(items)
+                        }
+                        
+                        // Cut
+                        Button(isSingleSelection ? "Cut" : "Cut \(selectedIds.count) items") {
+                            let items = isSingleSelection ? [firstItem] : selectedItems
+                            onCut?(items)
+                        }
+                        
+                        Divider()
+                        
+                        // Rename - only for single selection
+                        if isSingleSelection {
+                            Button("Rename") {
+                                fileToRename = firstItem
+                                newFileName = firstItem.name
+                                showRenameDialog = true
+                            }
+                            .disabled(onRename == nil)
+                        }
+                        
+                        // Change Extension - only for multiple files (no folders)
+                        if selectedIds.count > 1 && hasOnlyFiles {
+                            Button("Change Extension...") {
+                                showExtensionDialog = true
+                            }
+                            .disabled(onBatchChangeExtension == nil)
+                        }
+                        
+                        // Move to Trash
+                        Button(isSingleSelection ? "Move to Trash" : "Move \(selectedIds.count) items to Trash", role: .destructive) {
                             if isSingleSelection {
                                 fileToDelete = firstItem
                                 showDeleteConfirmation = true
@@ -345,6 +420,16 @@ struct FileBrowserView: View, Equatable {
                 } else {
                     onBatchDownload?()
                 }
+            }
+            Divider()
+        }
+        
+        // Download folder
+        if file.isDirectory && isSingleSelection {
+            Button {
+                onDownloadFolder?(file)
+            } label: {
+                Label("Download Folder", systemImage: "folder.badge.gearshape")
             }
             Divider()
         }

@@ -92,57 +92,53 @@ struct ActionToolbar: View {
                 Divider()
                     .frame(height: 16)
             } else if !fileActionManager.clipboard.isEmpty {
-                HStack(spacing: 4) {
+                HStack(spacing: 6) {
+                    // Operation icon + count
                     Image(systemName: fileActionManager.clipboardOperation == .cut ? "scissors" : "doc.on.clipboard")
-                        .font(.caption)
+                        .font(.system(size: 11))
                         .foregroundColor(.blue)
                     Text("\(fileActionManager.clipboard.count)")
-                        .font(.caption)
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.secondary)
                     
-                    // Paste button
+                    Divider()
+                        .frame(height: 12)
+                    
+                    // Paste button (icon + text, non-wrapping)
                     Button {
                         Task {
-                            // Start paste in background
-                            let pasteTask = Task {
-                                try await fileActionManager.paste(to: currentPath)
-                            }
-                            
-                            // Quick delay to let mkdir complete, then refresh early
-                            try? await Task.sleep(nanoseconds: 800_000_000) // 0.8 second
-                            await onRefresh() // Early refresh to show folders appearing
-                            
-                            // Wait for paste to complete
                             do {
-                                try await pasteTask.value
+                                try await fileActionManager.paste(to: currentPath)
                             } catch {
                                 print("❌ Paste failed: \(error.localizedDescription)")
                             }
-                            
-                            // Final refresh to ensure everything is up to date
                             await onRefresh()
                         }
                     } label: {
-                        Label("Paste", systemImage: "doc.on.doc")
-                            .font(.caption)
+                        HStack(spacing: 2) {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 10))
+                            Text("Paste")
+                                .font(.system(size: 11, weight: .medium))
+                        }
                     }
                     .buttonStyle(.borderless)
-                    .keyboardShortcut("v", modifiers: .command)
                     
                     // Clear clipboard
                     Button {
                         fileActionManager.clearClipboard()
                     } label: {
-                        Image(systemName: "xmark.circle")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary.opacity(0.7))
                     }
                     .buttonStyle(.plain)
                     .help("Clear clipboard")
                 }
+                .fixedSize()
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(Color.blue.opacity(0.15))
+                .background(Color.blue.opacity(0.12))
                 .cornerRadius(6)
                 
                 Divider()

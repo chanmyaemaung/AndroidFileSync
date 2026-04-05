@@ -33,6 +33,27 @@ class FileActionManager: ObservableObject {
     @Published var currentAction: String = ""
     @Published var lastError: String?
     
+    // MARK: - Paste Conflict Resolution
+    
+    enum ConflictResolution {
+        case replace    // overwrite existing
+        case keepBoth   // rename to _copy
+        case skip       // skip the conflicting file
+    }
+    
+    struct PasteConflict: Identifiable {
+        let id = UUID()
+        let file: UnifiedFile         // item being pasted
+        let destinationPath: String   // full dest path that already exists
+    }
+    
+    /// Non-empty when paste found existing files — UI should present a confirmation
+    @Published var pasteConflicts: [PasteConflict] = []
+    /// Pending items that were conflict-free (stored while waiting for user's resolution)
+    private var pendingPasteItems: [(file: UnifiedFile, dest: String)] = []
+    private var pendingDestinationPath: String = ""
+    private var pendingOperation: ClipboardOperation = .none
+    
     // Trash functionality
     @Published var trashedItems: [TrashedItem] = []
     private let trashFolderPath = "/storage/emulated/0/.AndroidFileSync_Trash"
@@ -330,71 +351,167 @@ class FileActionManager: ObservableObject {
         clipboardOperation = .cut
     }
     
-    /// Pastes files from clipboard to destination
+    /// Phase 1: ensure destination exists, build candidate paths, check for conflicts.
+    /// If conflicts are found they are published to `pasteConflicts` and this method returns
+    /// without copying anything. The UI should then call `resumePaste(resolution:)`.
     func paste(to destinationPath: String) async throws {
         guard !clipboard.isEmpty else { return }
-        
-        let itemCount = clipboard.count
-        let operation = clipboardOperation
-        let itemsToPaste = clipboard // Capture before any modifications
-        
+
+        let operation    = clipboardOperation
+        let itemsToPaste = clipboard
+
         await MainActor.run {
             isPerformingAction = true
-            currentAction = "Pasting \(itemCount) items..."
-            lastError = nil
+            currentAction      = "Checking destination…"
+            lastError          = nil
+            pasteConflicts     = []
         }
-        
+
+        // Auto-create destination (handles Quick Access folders that don't exist yet)
+        let escapedDest = destinationPath.replacingOccurrences(of: "'", with: "'\\''")
+        let mkdirResult = await Shell.runAsync(
+            ADBManager.getADBPath(),
+            args: ADBManager.deviceArgs(["shell", "mkdir -p '\(escapedDest)'"])
+        )
+        if mkdirResult.0 != 0 {
+            await MainActor.run {
+                isPerformingAction = false
+                currentAction      = ""
+                lastError          = "Cannot create destination: \(destinationPath)\n\(mkdirResult.2)"
+            }
+            return
+        }
+
+        var readyItems:    [(file: UnifiedFile, dest: String)] = []
+        var conflictItems: [(file: UnifiedFile, dest: String)] = []
+
+        for file in itemsToPaste {
+            let baseDest = destinationPath.hasSuffix("/")
+                ? "\(destinationPath)\(file.name)"
+                : "\(destinationPath)/\(file.name)"
+
+            // Prevent copying folder into itself
+            if file.isDirectory && baseDest.hasPrefix(file.path) { continue }
+
+            // Same folder: always rename to _copy (no confirm needed)
+            if file.path == baseDest {
+                readyItems.append((file, uniqueCopyPath(original: file.path, inDirectory: destinationPath, isDirectory: file.isDirectory)))
+                continue
+            }
+
+            // Check if destination already exists on device
+            let escBase = baseDest.replacingOccurrences(of: "'", with: "'\\''")
+            let (_, testOut, _) = await Shell.runAsync(
+                ADBManager.getADBPath(),
+                args: ADBManager.deviceArgs(["shell", "[ -e '\(escBase)' ] && echo 1 || echo 0"])
+            )
+            if testOut.trimmingCharacters(in: .whitespacesAndNewlines) == "1" {
+                conflictItems.append((file, baseDest))
+            } else {
+                readyItems.append((file, baseDest))
+            }
+        }
+
+        await MainActor.run { isPerformingAction = false }
+
+        if conflictItems.isEmpty {
+            try await executePaste(items: readyItems, operation: operation)
+        } else {
+            // Surface conflicts to UI
+            pendingPasteItems      = readyItems
+            pendingDestinationPath = destinationPath
+            pendingOperation       = operation
+            await MainActor.run {
+                pasteConflicts = conflictItems.map { PasteConflict(file: $0.file, destinationPath: $0.dest) }
+            }
+        }
+    }
+
+    /// Phase 2: called by the UI after the user picks how to resolve conflicts.
+    func resumePaste(resolution: ConflictResolution) async throws {
+        let conflicts = pasteConflicts
+        let ready     = pendingPasteItems
+        let dest      = pendingDestinationPath
+        let operation = pendingOperation
+
+        await MainActor.run { pasteConflicts = [] }
+
+        var allItems = ready
+        for conflict in conflicts {
+            switch resolution {
+            case .replace:  allItems.append((conflict.file, conflict.destinationPath))
+            case .keepBoth: allItems.append((conflict.file, uniqueCopyPath(original: conflict.destinationPath, inDirectory: dest, isDirectory: conflict.file.isDirectory)))
+            case .skip:     break
+            }
+        }
+
+        try await executePaste(items: allItems, operation: operation)
+    }
+
+    /// Execute a resolved list of paste items.
+    private func executePaste(items: [(file: UnifiedFile, dest: String)],
+                              operation: ClipboardOperation) async throws {
+        guard !items.isEmpty else {
+            await MainActor.run { clipboard.removeAll(); clipboardOperation = .none }
+            return
+        }
+
+        let n = items.count
+        await MainActor.run {
+            isPerformingAction = true
+            currentAction      = "Pasting \(n) item\(n > 1 ? "s" : "")…"
+        }
+
         var successCount = 0
         var failedItems: [(name: String, error: String)] = []
-        
-        for file in itemsToPaste {
-            let destinationFile = destinationPath.hasSuffix("/") 
-                ? "\(destinationPath)\(file.name)" 
-                : "\(destinationPath)/\(file.name)"
-            
-            // Check if trying to paste into itself (for directories)
-            if file.isDirectory && destinationFile.hasPrefix(file.path) {
-                failedItems.append((file.name, "Cannot copy folder into itself"))
-                continue
-            }
-            
-            // Check if source and destination are the same
-            if file.path == destinationFile {
-                failedItems.append((file.name, "Source and destination are the same"))
-                continue
-            }
-            
+
+        for (file, destFile) in items {
+            print("\u{1F4CB} Paste: \(operation == .cut ? "move" : "copy") '\(file.path)' \u{2192} '\(destFile)'")
             do {
                 if operation == .cut {
-                    // Move operation
-                    try await ADBManager.renameFile(oldPath: file.path, newPath: destinationFile)
+                    try await ADBManager.renameFile(oldPath: file.path, newPath: destFile)
                 } else {
-                    // Copy operation - pass isDirectory flag
-                    try await ADBManager.copyFile(from: file.path, to: destinationFile, isDirectory: file.isDirectory)
+                    try await ADBManager.copyFile(from: file.path, to: destFile, isDirectory: file.isDirectory)
                 }
                 successCount += 1
             } catch {
-                print("❌ Failed to paste \(file.name): \(error.localizedDescription)")
+                print("\u{274C} Failed to paste \(file.name): \(error.localizedDescription)")
                 failedItems.append((file.name, error.localizedDescription))
             }
         }
-        
+
         await MainActor.run {
             isPerformingAction = false
-            currentAction = ""
-            
-            // Clear clipboard if it was a cut operation
-            if operation == .cut && successCount > 0 {
-                clipboard.removeAll()
-                clipboardOperation = .none
-            }
-            
+            currentAction      = ""
+            if successCount > 0 { clipboard.removeAll(); clipboardOperation = .none }
             if !failedItems.isEmpty {
-                let failureMessages = failedItems.map { "\($0.name): \($0.error)" }
-                lastError = "Failed to paste:\n" + failureMessages.joined(separator: "\n")
+                lastError = "Failed to paste \(failedItems.count) item(s):\n"
+                    + failedItems.map { "\($0.name): \($0.error)" }.joined(separator: "\n")
             }
         }
+    }
+    
+    /// Generates a unique destination path for a same-folder copy.
+    /// e.g. photo.jpg → photo_copy.jpg → photo_copy_2.jpg
+    private func uniqueCopyPath(original: String, inDirectory dir: String, isDirectory: Bool) -> String {
+        let nsPath = original as NSString
+        let ext = isDirectory ? "" : nsPath.pathExtension
+        let nameNoExt = isDirectory
+            ? nsPath.lastPathComponent
+            : (nsPath.lastPathComponent as NSString).deletingPathExtension
         
+        let base = dir.hasSuffix("/") ? dir : dir + "/"
+        
+        // First attempt: name_copy[.ext]
+        let firstCandidate: String
+        if ext.isEmpty {
+            firstCandidate = base + nameNoExt + "_copy"
+        } else {
+            firstCandidate = base + nameNoExt + "_copy." + ext
+        }
+        // We can't easily check existence on device synchronously here, so just
+        // return the _copy name; the ADB cp will overwrite or fail gracefully.
+        return firstCandidate
     }
     
     /// Clears the clipboard

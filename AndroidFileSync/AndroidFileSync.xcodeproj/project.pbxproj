@@ -36,6 +36,7 @@
 				Managers/DownloadManager.swift,
 				Managers/FileActionManager.swift,
 				Managers/FilePreviewManager.swift,
+				Managers/SidebarManager.swift,
 				Managers/UploadManager.swift,
 				Models/Models.swift,
 				Utilities/DropCoordinator.swift,

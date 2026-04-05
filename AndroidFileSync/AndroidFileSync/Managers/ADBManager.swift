@@ -175,6 +175,53 @@ class ADBManager {
         return true
     }
 
+    // MARK: - Recursive file listing for folder download
+    
+    /// Returns every file under `path` with its size and path relative to `path`.
+    /// Uses a single `find` shell call so it is fast even on large trees.
+    /// - Returns: Array of (devicePath, relativePath, size) tuples.
+    static func listAllFilesRecursively(
+        path: String,
+        progressCallback: ((Int) -> Void)? = nil
+    ) async throws -> [(devicePath: String, relativePath: String, size: UInt64)] {
+        let adbPath = getADBPath()
+        guard !adbPath.isEmpty else {
+            throw NSError(domain: "ADBError", code: -1, userInfo: [NSLocalizedDescriptionKey: "ADB not found"])
+        }
+        
+        // Single `find` call: print size and relative path for every file
+        let cmd = "find '\(path)' -type f -printf '%s %P\\n' 2>/dev/null"
+        let (code, output, error) = await Shell.runAsyncWithTimeout(
+            adbPath,
+            args: deviceArgs(["shell", cmd]),
+            timeoutSeconds: 120.0
+        )
+        
+        guard code == 0 else {
+            throw NSError(domain: "ADBError", code: Int(code),
+                          userInfo: [NSLocalizedDescriptionKey: error.isEmpty ? "find command failed" : error])
+        }
+        
+        var results: [(devicePath: String, relativePath: String, size: UInt64)] = []
+        let basePath = path.hasSuffix("/") ? path : path + "/"
+        
+        output.enumerateLines { line, _ in
+            guard !line.isEmpty else { return }
+            // Format: "<size> <relative/path/to/file>"
+            let parts = line.split(separator: " ", maxSplits: 1)
+            guard parts.count == 2 else { return }
+            let size = UInt64(parts[0]) ?? 0
+            let relativePath = String(parts[1])
+            guard !relativePath.isEmpty else { return }
+            let devicePath = basePath + relativePath
+            results.append((devicePath: devicePath, relativePath: relativePath, size: size))
+        }
+        
+        progressCallback?(results.count)
+        print("📂 Recursive scan of '\(path)': found \(results.count) files")
+        return results
+    }
+
     static func listFiles(path: String) async throws -> [ADBFile] {
         let adbPath = getADBPath()
         
@@ -194,7 +241,10 @@ class ADBManager {
         
         // Handle errors
         if code != 0 {
-            print("❌ ADB Error: \(error)")
+            // Suppress "No such file or directory" error for optional paths like Documents
+            if !error.contains("No such file or directory") {
+                print("❌ ADB Error: \(error)")
+            }
             throw NSError(
                 domain: "ADBError",
                 code: Int(code),
@@ -725,6 +775,36 @@ class ADBManager {
             }
         }
         
+    }
+    
+    /// Creates multiple folders on the Android device in batched ADB calls.
+    /// Batches up to 50 paths per shell call to avoid argument length limits.
+    static func batchCreateFolders(paths: [String]) async {
+        guard !paths.isEmpty else { return }
+        let adbPath = getADBPath()
+        guard !adbPath.isEmpty else { return }
+        
+        // Deduplicate and sort (shorter paths first so parents are created before children)
+        let uniquePaths = Array(Set(paths)).sorted()
+        
+        // Batch into chunks of 50
+        let chunkSize = 50
+        for start in stride(from: 0, to: uniquePaths.count, by: chunkSize) {
+            let end = min(start + chunkSize, uniquePaths.count)
+            let chunk = uniquePaths[start..<end]
+            
+            // Build a single mkdir -p command with all paths
+            let escapedPaths = chunk.map { path in
+                let escaped = path.replacingOccurrences(of: "'", with: "'\\''")
+                return "'\(escaped)'"
+            }
+            let command = "mkdir -p \(escapedPaths.joined(separator: " "))"
+            
+            let (code, _, error) = await Shell.runAsync(adbPath, args: deviceArgs(["shell", command]))
+            if code != 0 {
+                print("⚠️ Batch mkdir failed for chunk: \(error)")
+            }
+        }
     }
     
     // MARK: - Create File

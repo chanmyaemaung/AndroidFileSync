@@ -10,27 +10,54 @@ import SwiftUI
 struct TransferProgressContainer: View {
     @ObservedObject var downloadManager: DownloadManager
     @ObservedObject var uploadManager: UploadManager
+    @ObservedObject var deviceManager: DeviceManager
     
     var body: some View {
-        if !downloadManager.activeDownloads.isEmpty || !uploadManager.activeUploads.isEmpty {
+        if downloadManager.isScanning {
+            // Show scanning placeholder when enumerating a folder
+            HStack(spacing: 8) {
+                ProgressView().scaleEffect(0.7)
+                Text("Scanning \(downloadManager.scanningFolderName)…")
+                    .font(.system(.caption, weight: .semibold))
+                    .foregroundColor(.orange)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color(NSColor.windowBackgroundColor))
+        } else if !downloadManager.activeDownloads.isEmpty || !uploadManager.activeUploads.isEmpty {
             TransferProgressView(
                 title: "Active Transfers",
                 items: getTransferItems(),
                 batchInfo: getBatchInfo(),
-                onCancel: { item in
-                    handleCancel(item)
-                }
+                onCancel: { item in handleCancel(item) },
+                onCancelAll: {
+                    downloadManager.cancelAllDownloads()
+                    uploadManager.cancelAllUploads()
+                },
+                concurrencyBinding: getConcurrencyBinding(),
+                isWirelessConnection: deviceManager.connectionType == .wireless,
+                isScanning: downloadManager.isScanning,
+                scanningFolderName: downloadManager.scanningFolderName,
+                folderName: downloadManager.currentFolderName
             )
         }
     }
     
+    private func getConcurrencyBinding() -> Binding<Int>? {
+        if downloadManager.isBatchDownloading {
+            return $downloadManager.maxConcurrent
+        } else if uploadManager.isBatchUploading {
+            return $uploadManager.maxConcurrent
+        }
+        return nil
+    }
+    
     private func handleCancel(_ item: TransferItemData) {
         if item.isUpload {
-            // Extract localPath from the ID (format: "upload_localPath")
             let localPath = String(item.id.dropFirst("upload_".count))
             uploadManager.cancelUpload(localPath: localPath)
         } else {
-            // Extract devicePath from the ID (format: "download_devicePath")
             let devicePath = String(item.id.dropFirst("download_".count))
             downloadManager.cancelDownload(devicePath: devicePath)
         }
@@ -38,12 +65,18 @@ struct TransferProgressContainer: View {
     
     /// Returns batch info for showing overall progress
     private func getBatchInfo() -> BatchTransferInfo? {
-        // Only show batch info if there's an active batch download
         if downloadManager.isBatchDownloading && downloadManager.batchTotal > 1 {
             return BatchTransferInfo(
                 completed: downloadManager.batchCompleted,
                 total: downloadManager.batchTotal,
                 isDownload: true
+            )
+        }
+        if uploadManager.isBatchUploading && uploadManager.batchTotal > 1 {
+            return BatchTransferInfo(
+                completed: uploadManager.batchCompleted,
+                total: uploadManager.batchTotal,
+                isDownload: false
             )
         }
         return nil

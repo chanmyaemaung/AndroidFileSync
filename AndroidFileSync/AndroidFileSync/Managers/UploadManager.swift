@@ -10,6 +10,16 @@ internal import Combine
 class UploadManager: ObservableObject {
     @Published var activeUploads: [String: UploadProgress] = [:]
     
+    // Batch tracking (mirrors DownloadManager)
+    @Published var batchTotal: Int = 0
+    @Published var batchCompleted: Int = 0
+    @Published var isBatchUploading: Bool = false
+    
+    // Live-adjustable concurrency (1-8 slots), persisted across launches
+    @Published var maxConcurrent: Int {
+        didSet { UserDefaults.standard.set(maxConcurrent, forKey: "maxConcurrentUploads") }
+    }
+    
     // Thread-safe storage for progress updates from background
     private let progressLock = NSLock()
     private var backgroundProgress: [String: (bytes: UInt64, speed: Double)] = [:]
@@ -20,6 +30,11 @@ class UploadManager: ObservableObject {
     
     // Timer for periodic UI updates - only runs when uploads are active
     private var updateTimer: Timer?
+    
+    init() {
+        let saved = UserDefaults.standard.integer(forKey: "maxConcurrentUploads")
+        self.maxConcurrent = saved > 0 ? min(max(saved, 1), 8) : 3
+    }
     
     struct UploadProgress: Identifiable {
         let id = UUID()
@@ -122,6 +137,41 @@ class UploadManager: ObservableObject {
             // Clean up flag
             self?.flagLock.lock()
             self?.cancellationFlags.removeValue(forKey: localPath)
+            self?.flagLock.unlock()
+        }
+    }
+    
+    /// Cancels all active uploads
+    func cancelAllUploads() {
+        print("🛑 Cancelling ALL uploads")
+        
+        // Set all cancellation flags
+        flagLock.lock()
+        for key in cancellationFlags.keys {
+            cancellationFlags[key] = true
+        }
+        // Also flag all active uploads
+        for key in activeUploads.keys {
+            cancellationFlags[key] = true
+        }
+        flagLock.unlock()
+        
+        // Mark all as cancelled in UI
+        for key in activeUploads.keys {
+            activeUploads[key]?.isCancelled = true
+        }
+        
+        // Clear after brief delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.activeUploads.removeAll()
+            self?.stopTimerIfNeeded()
+            
+            self?.progressLock.lock()
+            self?.backgroundProgress.removeAll()
+            self?.progressLock.unlock()
+            
+            self?.flagLock.lock()
+            self?.cancellationFlags.removeAll()
             self?.flagLock.unlock()
         }
     }
@@ -312,27 +362,81 @@ class UploadManager: ObservableObject {
         return uploadTask
     }
     
-    /// Uploads multiple files in parallel (like downloads)
+    /// Uploads multiple files in parallel to the SAME directory
     func uploadMultipleFiles(
         files: [(localPath: String, fileName: String, fileSize: UInt64)],
         toDirectory devicePath: String
     ) async {
-        // Start all uploads in parallel
-        var tasks: [Task<Void, Never>] = []
+        guard !files.isEmpty else { return }
         
-        for file in files {
-            let task = startUpload(
-                localPath: file.localPath,
-                fileName: file.fileName,
-                fileSize: file.fileSize,
-                to: devicePath
-            )
-            tasks.append(task)
+        // Convert to per-path format and reuse the sliding-window method
+        let items = files.map { file in
+            (localPath: file.localPath, fileName: file.fileName, fileSize: file.fileSize, devicePath: devicePath)
+        }
+        await uploadFilesToPaths(files: items)
+    }
+    
+    /// Uploads multiple files in parallel where each file has its OWN unique device path.
+    /// Uses a sliding window with live-adjustable concurrency (same pattern as DownloadManager).
+    func uploadFilesToPaths(
+        files: [(localPath: String, fileName: String, fileSize: UInt64, devicePath: String)]
+    ) async {
+        guard !files.isEmpty else { return }
+        
+        await MainActor.run {
+            batchTotal = files.count
+            batchCompleted = 0
+            isBatchUploading = true
         }
         
-        // Wait for all uploads to complete
-        for task in tasks {
-            await task.value
+        print("📤 Starting parallel upload of \(files.count) files")
+        
+        await withTaskGroup(of: Void.self) { group in
+            var runningCount = 0
+            var fileIndex = 0
+            
+            while fileIndex < files.count {
+                // Re-read limit each iteration so live slider changes take effect
+                let limit = self.maxConcurrent
+                
+                // Fill up to limit slots
+                while runningCount < limit && fileIndex < files.count {
+                    let file = files[fileIndex]
+                    fileIndex += 1
+                    runningCount += 1
+                    
+                    print("📤 [\(fileIndex)/\(files.count)] Starting: \(file.fileName)")
+                    
+                    group.addTask {
+                        do {
+                            try await self.uploadFile(
+                                localPath: file.localPath,
+                                fileName: file.fileName,
+                                fileSize: file.fileSize,
+                                to: file.devicePath
+                            )
+                            await MainActor.run { self.batchCompleted += 1 }
+                        } catch {
+                            print("❌ Failed to upload \(file.fileName): \(error)")
+                            await MainActor.run { self.batchCompleted += 1 }
+                        }
+                    }
+                }
+                
+                // Wait for one slot to free before looping
+                if runningCount >= limit && fileIndex < files.count {
+                    await group.next()
+                    runningCount -= 1
+                }
+            }
+            
+            await group.waitForAll()
         }
+        
+        await MainActor.run {
+            isBatchUploading = false
+        }
+        
+        print("✅ All \(files.count) uploads completed")
     }
 }

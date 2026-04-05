@@ -36,6 +36,16 @@ struct TransferProgressView: View {
     let items: [TransferItemData]
     var batchInfo: BatchTransferInfo? = nil
     var onCancel: ((TransferItemData) -> Void)? = nil
+    var onCancelAll: (() -> Void)? = nil
+    
+    // Live concurrency control
+    var concurrencyBinding: Binding<Int>? = nil
+    var isWirelessConnection: Bool = false
+    
+    // Folder-scan state
+    var isScanning: Bool = false
+    var scanningFolderName: String = ""
+    var folderName: String = ""   // shown while downloading a folder
     
     @State private var panelHeight: CGFloat = 120
     @State private var isCollapsed: Bool = false
@@ -113,12 +123,22 @@ struct TransferProgressView: View {
             VStack(alignment: .leading, spacing: 4) {
                 // Header
                 HStack(spacing: 6) {
-                    Image(systemName: "arrow.down.circle.fill")
+                    Image(systemName: isScanning ? "magnifyingglass.circle" : (folderName.isEmpty ? "arrow.down.circle.fill" : "folder.badge.gearshape"))
                         .font(.system(size: 12))
-                        .foregroundColor(.blue)
+                        .foregroundColor(isScanning ? .orange : .blue)
+                        
                     
-                    Text(title)
-                        .font(.system(.caption, weight: .semibold))
+                    if isScanning {
+                        Text("Scanning \(scanningFolderName)…")
+                            .font(.system(.caption, weight: .semibold))
+                            .foregroundColor(.orange)
+                    } else if !folderName.isEmpty {
+                        Text("\(folderName) — \(title)")
+                            .font(.system(.caption, weight: .semibold))
+                    } else {
+                        Text(title)
+                            .font(.system(.caption, weight: .semibold))
+                    }
                     
                     Spacer()
                     
@@ -126,6 +146,52 @@ struct TransferProgressView: View {
                         Text("\(batch.completed)/\(batch.total)")
                             .font(.system(.caption2, design: .monospaced, weight: .bold))
                             .foregroundColor(.green)
+                    }
+                    
+                    // Live concurrency stepper
+                    if let binding = concurrencyBinding {
+                        Divider().frame(height: 12)
+                        HStack(spacing: 4) {
+                            Button { binding.wrappedValue = max(1, binding.wrappedValue - 1) } label: {
+                                Image(systemName: "minus.circle")
+                            }
+                            .buttonStyle(.plain)
+                            .help("Fewer simultaneous downloads")
+                            
+                            Text("\(binding.wrappedValue)")
+                                .font(.system(.caption, design: .monospaced, weight: .bold))
+                                .frame(minWidth: 14, alignment: .center)
+                            
+                            Button { binding.wrappedValue = min(8, binding.wrappedValue + 1) } label: {
+                                Image(systemName: "plus.circle")
+                            }
+                            .buttonStyle(.plain)
+                            .help("More simultaneous downloads")
+                        }
+                        .foregroundColor(.secondary)
+                        
+                        // Wireless hint
+                        if isWirelessConnection {
+                            Text("Best: 1–5 on WiFi")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(.orange.opacity(0.8))
+                        }
+                    }
+                    
+                    // Cancel All button
+                    if items.count > 1 || batchInfo != nil {
+                        Divider().frame(height: 12)
+                        Button(action: { onCancelAll?() }) {
+                            HStack(spacing: 2) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 10))
+                                Text("Cancel All")
+                                    .font(.system(size: 10, weight: .medium))
+                            }
+                            .foregroundColor(.red.opacity(0.8))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Cancel all active transfers")
                     }
                 }
                 
