@@ -21,9 +21,12 @@ No cloud. No Google account needed. Plug in via USB or scan a QR code to connect
 - **File Browser** — Browse your phone's storage like a native Finder window
 - **Drag & Drop** — Drag files from Finder straight to your phone
 - **Parallel Transfers** — Upload/download multiple files simultaneously
-- **Quick Access Sidebar** — Jump to Camera, Downloads, Pictures, Music, etc.
+- **Conflict Resolution** — Intelligently detects existing duplicates during uploads, offering clean options to Skip or Replace All. 
+- **Collision Prevention** — Renaming or pasting files safely generates unique names or warns you before overwriting data.
+- **Smart Quick Access Sidebar** — Jump to Camera, Downloads, Pictures, Music, etc. Automatically sweeps away folders that don't exist on your specific device.
+- **Native macOS Dialogs** — Polished, robust text-input panels for file renaming and folder creation that feel right at home on Mac.
 - **Search & Sort** — Search files instantly, sort by name, size, date, or type
-- **Batch Operations** — Rename, change extensions, delete multiple files at once
+- **Batch Operations** — Change extensions, delete multiple files at once
 - **Copy & Paste / Cut** — Clipboard operations across folders on the device
 - **Trash Management** — Move to trash & restore, just like macOS
 - **File Preview** — Double-click to preview images, videos, PDFs, and documents
