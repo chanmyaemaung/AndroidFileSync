@@ -2,7 +2,7 @@
 
 A free, native macOS app to transfer files between your Mac and Android phone — over USB or WiFi.
 
-No cloud. No Google account needed. Plug in via USB or scan a QR code to connect wirelessly.
+No cloud. No Google account needed. Plug in via USB or connect wirelessly over WiFi.
 
 ![SwiftUI](https://img.shields.io/badge/SwiftUI-macOS%2013%2B-blue)
 
@@ -137,7 +137,7 @@ To create a DMG:
 | "Scanning for Device..." won't stop | Check USB Debugging is enabled and you tapped "Allow" on the phone |
 | Device not detected | Try a different USB cable (some only charge, don't transfer data) |
 | WiFi pairing fails | Ensure both devices are on the same WiFi network |
-| QR code not scanning | Regenerate the QR code and try again; make sure Wireless Debugging is ON |
+| WiFi pairing code not working | Re-open Wireless Debugging on your phone to get a fresh code and try again |
 | Slow transfers | Use a USB 3.0 cable and port for faster speeds |
 | Empty Trash not working | Reconnect the device and try again |
 | App crashes on launch | Ensure macOS 13.0+ and try re-downloading |
@@ -148,7 +148,7 @@ To create a DMG:
 - **ADB** — Android Debug Bridge (bundled with the app)
 - **Swift Concurrency** — Async/await for parallel transfers
 - **Network.framework** — mDNS service discovery for wireless pairing
-- **CoreImage** — QR code generation
+- **CoreImage** — Image processing and thumbnail generation
 - **Quick Look** — Native file preview via macOS default apps
 
 
