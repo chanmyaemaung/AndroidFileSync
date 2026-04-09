@@ -463,46 +463,44 @@ struct ContentView: View {
     private func handleUpload(urls: [URL]) {
         let manager = self.uploadManager
         let path = self.currentPath
-        
+
         Task {
-            // Single unified list: every file gets its own device path
+            // ── Build upload list ───────────────────────────────────────────
             var allItems: [(localPath: String, fileName: String, fileSize: UInt64, devicePath: String)] = []
             var remoteDirsToCreate: Set<String> = []
-            
+
             for url in urls {
                 var isDir: ObjCBool = false
                 guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else {
                     print("⚠️ File does not exist: \(url.lastPathComponent)")
                     continue
                 }
-                
+
                 if isDir.boolValue {
-                    // Folder: enumerate all files locally, add each with its unique remote path
                     let basePath = url.path
                     let remoteFolderBase = (path.hasSuffix("/") ? path : path + "/") + url.lastPathComponent
                     remoteDirsToCreate.insert(remoteFolderBase)
-                    
+
                     guard let enumerator = FileManager.default.enumerator(
                         at: url,
                         includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
                         options: [.skipsHiddenFiles]
                     ) else { continue }
-                    
+
                     for case let fileURL as URL in enumerator {
                         guard let rv = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
                               rv.isRegularFile == true else { continue }
-                        
+
                         let relativePath = String(fileURL.path.dropFirst(basePath.count + 1))
                         let remoteFilePath = remoteFolderBase + "/" + relativePath
                         let remoteDir = (remoteFilePath as NSString).deletingLastPathComponent
                         remoteDirsToCreate.insert(remoteDir)
-                        
+
                         let size = UInt64(rv.fileSize ?? 0)
                         let fileName = (relativePath as NSString).lastPathComponent
                         allItems.append((localPath: fileURL.path, fileName: fileName, fileSize: size, devicePath: remoteDir))
                     }
                 } else {
-                    // Regular file: goes to current directory
                     guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
                           let size = attrs[.size] as? UInt64 else {
                         print("⚠️ Could not get file size for: \(url.lastPathComponent)")
@@ -511,22 +509,76 @@ struct ContentView: View {
                     allItems.append((localPath: url.path, fileName: url.lastPathComponent, fileSize: size, devicePath: path))
                 }
             }
-            
+
             guard !allItems.isEmpty else { return }
-            
-            // 1. Batch create ALL remote directories in 1-2 ADB calls
+
+            // ── Conflict check: probe device in parallel ────────────────────
+            let adb = ADBManager.getADBPath()
+
+            // Build full device paths for each item
+            func fullDevicePath(_ item: (localPath: String, fileName: String, fileSize: UInt64, devicePath: String)) -> String {
+                let (safeName, _) = FileNameHelper.getSafeFilename(item.fileName)
+                return item.devicePath.hasSuffix("/")
+                    ? item.devicePath + safeName
+                    : item.devicePath + "/" + safeName
+            }
+
+            // Run all existence checks concurrently
+            var conflictingPaths = Set<String>()
+            await withTaskGroup(of: (String, Bool).self) { group in
+                for item in allItems {
+                    let devPath = fullDevicePath(item)
+                    let escaped = devPath.replacingOccurrences(of: "'", with: "'\\''")
+                    group.addTask {
+                        let (_, out, _) = await Shell.runAsync(
+                            adb,
+                            args: ADBManager.deviceArgs(["shell", "[ -e '\(escaped)' ] && echo 1 || echo 0"])
+                        )
+                        let exists = out.trimmingCharacters(in: .whitespacesAndNewlines) == "1"
+                        return (devPath, exists)
+                    }
+                }
+                for await (devPath, exists) in group {
+                    if exists { conflictingPaths.insert(devPath) }
+                }
+            }
+
+            // ── If conflicts exist, ask user ────────────────────────────────
+            if !conflictingPaths.isEmpty {
+                let conflictNames = allItems
+                    .filter { conflictingPaths.contains(fullDevicePath($0)) }
+                    .map { $0.fileName }
+
+                // Brief pause so macOS finishes the drag-and-drop animation
+                try? await Task.sleep(nanoseconds: 350_000_000)
+
+                let choice = await MainActor.run {
+                    ConflictDialog.show(conflictNames: conflictNames, totalCount: allItems.count)
+                }
+
+                switch choice {
+                case .replace: break   // keep allItems as-is, overwrite
+                case .skip:            // remove conflicting items
+                    allItems = allItems.filter { !conflictingPaths.contains(fullDevicePath($0)) }
+                case .cancel: return   // abort entirely
+                }
+            }
+
+
+            guard !allItems.isEmpty else { return }
+
+            // ── Create remote dirs then upload ──────────────────────────────
             if !remoteDirsToCreate.isEmpty {
                 await ADBManager.batchCreateFolders(paths: Array(remoteDirsToCreate))
             }
-            
-            // 2. Single parallel upload — everything together
+
             await manager.uploadFilesToPaths(files: allItems)
-            
-            // Refresh file list after upload
+
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             await loadFiles()
         }
     }
+
     
     private func handleDelete(_ file: UnifiedFile) {
         Task {

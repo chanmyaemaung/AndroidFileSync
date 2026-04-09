@@ -15,10 +15,7 @@ struct ActionToolbar: View {
     // Dialog states
     @State private var showNewFolderDialog = false
     @State private var showNewFileDialog = false
-    
-    @State private var newFolderName = ""
-    @State private var newFileName = ""
-    
+
     // Search state - bound to parent
     @Binding var searchQuery: String
     var totalFileCount: Int = 0
@@ -44,8 +41,22 @@ struct ActionToolbar: View {
         HStack(spacing: 8) {
             // New Folder button
             Button {
-                newFolderName = "New Folder"
-                showNewFolderDialog = true
+                if let name = TextInputDialog.show(
+                    title: "New Folder",
+                    message: "Enter a name for the new folder",
+                    placeholder: "Folder name",
+                    initialValue: "New Folder",
+                    confirmLabel: "Create"
+                ) {
+                    Task {
+                        do {
+                            try await fileActionManager.createFolder(at: currentPath, name: name)
+                            await onRefresh()
+                        } catch {
+                            print("Failed to create folder: \(error.localizedDescription)")
+                        }
+                    }
+                }
             } label: {
                 Label("New Folder", systemImage: "folder.badge.plus")
                     .font(.caption)
@@ -56,8 +67,22 @@ struct ActionToolbar: View {
             
             // New File button
             Button {
-                newFileName = "untitled.txt"
-                showNewFileDialog = true
+                if let name = TextInputDialog.show(
+                    title: "New File",
+                    message: "Enter a name for the new file",
+                    placeholder: "File name",
+                    initialValue: "untitled.txt",
+                    confirmLabel: "Create"
+                ) {
+                    Task {
+                        do {
+                            try await fileActionManager.createFile(at: currentPath, name: name)
+                            await onRefresh()
+                        } catch {
+                            print("Failed to create file: \(error.localizedDescription)")
+                        }
+                    }
+                }
             } label: {
                 Label("New File", systemImage: "doc.badge.plus")
                     .font(.caption)
@@ -242,52 +267,6 @@ struct ActionToolbar: View {
             if isSearchActive {
                 searchQuery = ""
             }
-        }
-        // New Folder dialog
-        .alert("New Folder", isPresented: $showNewFolderDialog) {
-            TextField("Folder name", text: $newFolderName)
-            Button("Cancel", role: .cancel) {
-                newFolderName = ""
-            }
-            Button("Create") {
-                let folderName = newFolderName // Capture value before clearing
-                newFolderName = ""
-                if !folderName.isEmpty {
-                    Task {
-                        do {
-                            try await fileActionManager.createFolder(at: currentPath, name: folderName)
-                            await onRefresh()
-                        } catch {
-                            print("❌ Failed to create folder: \(error.localizedDescription)")
-                        }
-                    }
-                }
-            }
-        } message: {
-            Text("Enter a name for the new folder")
-        }
-        // New File dialog
-        .alert("New File", isPresented: $showNewFileDialog) {
-            TextField("File name", text: $newFileName)
-            Button("Cancel", role: .cancel) {
-                newFileName = ""
-            }
-            Button("Create") {
-                let fileName = newFileName // Capture value before clearing
-                newFileName = ""
-                if !fileName.isEmpty {
-                    Task {
-                        do {
-                            try await fileActionManager.createFile(at: currentPath, name: fileName)
-                            await onRefresh()
-                        } catch {
-                            print("❌ Failed to create file: \(error.localizedDescription)")
-                        }
-                    }
-                }
-            }
-        } message: {
-            Text("Enter a name for the new file")
         }
     }
 }

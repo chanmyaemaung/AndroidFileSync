@@ -240,24 +240,43 @@ class FileActionManager: ObservableObject {
     ///   - file: The file to rename
     ///   - newName: The new name for the file
     func renameFile(_ file: UnifiedFile, to newName: String) async throws {
+        // ── Guard: empty name ──────────────────────────────────────────────
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw NSError(domain: "Rename", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "Name cannot be empty."])
+        }
+
+        // ── Guard: same name (no-op) ───────────────────────────────────────
+        guard trimmed != file.name else { return }
+
+        // ── Construct new path ─────────────────────────────────────────────
+        let parentPath = (file.path as NSString).deletingLastPathComponent
+        let newPath    = parentPath + "/" + trimmed
+
+        // ── Pre-flight: check if the new name already exists on device ─────
+        let escaped = newPath.replacingOccurrences(of: "'", with: "'\\''")
+        let (_, testOut, _) = await Shell.runAsync(
+            ADBManager.getADBPath(),
+            args: ADBManager.deviceArgs(["shell", "[ -e '\(escaped)' ] && echo 1 || echo 0"])
+        )
+        if testOut.trimmingCharacters(in: .whitespacesAndNewlines) == "1" {
+            throw NSError(
+                domain: "Rename", code: 2,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "\"\(trimmed)\" already exists in this folder. Choose a different name."]
+            )
+        }
+
         await MainActor.run {
             isPerformingAction = true
-            currentAction = "Renaming \(file.name)..."
+            currentAction = "Renaming \(file.name)…"
             lastError = nil
         }
-        
+
         do {
-            // Construct the new path by replacing the filename
-            let parentPath = (file.path as NSString).deletingLastPathComponent
-            let newPath = parentPath + "/" + newName
-            
             try await ADBManager.renameFile(oldPath: file.path, newPath: newPath)
-            
-            await MainActor.run {
-                isPerformingAction = false
-                currentAction = ""
-            }
-            
+            await MainActor.run { isPerformingAction = false; currentAction = "" }
         } catch {
             await MainActor.run {
                 isPerformingAction = false
@@ -395,7 +414,8 @@ class FileActionManager: ObservableObject {
 
             // Same folder: always rename to _copy (no confirm needed)
             if file.path == baseDest {
-                readyItems.append((file, uniqueCopyPath(original: file.path, inDirectory: destinationPath, isDirectory: file.isDirectory)))
+                let copyPath = await uniqueCopyPath(original: file.path, inDirectory: destinationPath, isDirectory: file.isDirectory)
+                readyItems.append((file, copyPath))
                 continue
             }
 
@@ -439,9 +459,18 @@ class FileActionManager: ObservableObject {
         var allItems = ready
         for conflict in conflicts {
             switch resolution {
-            case .replace:  allItems.append((conflict.file, conflict.destinationPath))
-            case .keepBoth: allItems.append((conflict.file, uniqueCopyPath(original: conflict.destinationPath, inDirectory: dest, isDirectory: conflict.file.isDirectory)))
-            case .skip:     break
+            case .replace:
+                allItems.append((conflict.file, conflict.destinationPath))
+            case .keepBoth:
+                // Probe the device to find a truly free name (async, loop)
+                let safePath = await uniqueCopyPath(
+                    original: conflict.destinationPath,
+                    inDirectory: dest,
+                    isDirectory: conflict.file.isDirectory
+                )
+                allItems.append((conflict.file, safePath))
+            case .skip:
+                break
             }
         }
 
@@ -491,27 +520,39 @@ class FileActionManager: ObservableObject {
         }
     }
     
-    /// Generates a unique destination path for a same-folder copy.
-    /// e.g. photo.jpg → photo_copy.jpg → photo_copy_2.jpg
-    private func uniqueCopyPath(original: String, inDirectory dir: String, isDirectory: Bool) -> String {
-        let nsPath = original as NSString
-        let ext = isDirectory ? "" : nsPath.pathExtension
+    /// Generates a guaranteed-unique destination path for "Keep Both".
+    /// Probes the device via ADB: photo.jpg → photo_copy.jpg → photo_copy_2.jpg → …
+    /// Caps at 99 iterations as a safety net.
+    private func uniqueCopyPath(original: String, inDirectory dir: String, isDirectory: Bool) async -> String {
+        let nsPath    = original as NSString
+        let ext       = isDirectory ? "" : nsPath.pathExtension
         let nameNoExt = isDirectory
             ? nsPath.lastPathComponent
             : (nsPath.lastPathComponent as NSString).deletingPathExtension
-        
-        let base = dir.hasSuffix("/") ? dir : dir + "/"
-        
-        // First attempt: name_copy[.ext]
-        let firstCandidate: String
-        if ext.isEmpty {
-            firstCandidate = base + nameNoExt + "_copy"
-        } else {
-            firstCandidate = base + nameNoExt + "_copy." + ext
+
+        let base   = dir.hasSuffix("/") ? dir : dir + "/"
+        let adb    = ADBManager.getADBPath()
+
+        func candidate(_ suffix: String) -> String {
+            ext.isEmpty ? base + nameNoExt + suffix : base + nameNoExt + suffix + "." + ext
         }
-        // We can't easily check existence on device synchronously here, so just
-        // return the _copy name; the ADB cp will overwrite or fail gracefully.
-        return firstCandidate
+
+        // First try: name_copy[.ext]
+        let first = candidate("_copy")
+        let esc1  = first.replacingOccurrences(of: "'", with: "'\''") 
+        let (_, out1, _) = await Shell.runAsync(adb, args: ADBManager.deviceArgs(["shell", "[ -e '\(esc1)' ] && echo 1 || echo 0"]))
+        if out1.trimmingCharacters(in: .whitespacesAndNewlines) != "1" { return first }
+
+        // Subsequent tries: name_copy_2[.ext], name_copy_3[.ext], …
+        for n in 2...99 {
+            let path = candidate("_copy_\(n)")
+            let esc  = path.replacingOccurrences(of: "'", with: "'\''") 
+            let (_, out, _) = await Shell.runAsync(adb, args: ADBManager.deviceArgs(["shell", "[ -e '\(esc)' ] && echo 1 || echo 0"]))
+            if out.trimmingCharacters(in: .whitespacesAndNewlines) != "1" { return path }
+        }
+
+        // Fallback: timestamp-based name (practically impossible to collide)
+        return candidate("_copy_\(Int(Date().timeIntervalSince1970))")
     }
     
     /// Clears the clipboard

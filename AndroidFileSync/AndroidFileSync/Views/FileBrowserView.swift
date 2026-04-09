@@ -50,12 +50,7 @@ struct FileBrowserView: View, Equatable {
     @State private var fileToDelete: UnifiedFile? = nil
     @State private var showBatchDeleteConfirmation = false
     @State private var batchDeleteCount = 0
-    
-    // Rename state (for context menu)
-    @State private var showRenameDialog = false
-    @State private var fileToRename: UnifiedFile? = nil
-    @State private var newFileName = ""
-    
+
     // Change extension state (for context menu)
     @State private var showExtensionDialog = false
     @State private var newExtension = ""
@@ -92,24 +87,7 @@ struct FileBrowserView: View, Equatable {
         } message: {
             Text("You can restore this item from the Trash.")
         }
-        // Rename alert
-        .alert("Rename \(fileToRename?.isDirectory == true ? "folder" : "file")", isPresented: $showRenameDialog) {
-            TextField("New name", text: $newFileName)
-            Button("Cancel", role: .cancel) {
-                fileToRename = nil
-                newFileName = ""
-            }
-            Button("Rename") {
-                if let file = fileToRename, !newFileName.isEmpty && newFileName != file.name {
-                    onRename?(file, newFileName)
-                }
-                fileToRename = nil
-                newFileName = ""
-            }
-        } message: {
-            Text("Enter a new name for \(fileToRename?.name ?? "this item")")
-        }
-        // Change extension alert
+        // Change extension alert (no pre-fill needed, so SwiftUI alert works fine here)
         .alert("Change Extension", isPresented: $showExtensionDialog) {
             TextField("New Extension", text: $newExtension)
                 .autocorrectionDisabled()
@@ -362,9 +340,16 @@ struct FileBrowserView: View, Equatable {
                         // Rename - only for single selection
                         if isSingleSelection {
                             Button("Rename") {
-                                fileToRename = firstItem
-                                newFileName = firstItem.name
-                                showRenameDialog = true
+                                let kind = firstItem.isDirectory ? "Folder" : "File"
+                                if let newName = TextInputDialog.show(
+                                    title: "Rename \(kind)",
+                                    message: "Enter a new name for \"\(firstItem.name)\"",
+                                    placeholder: firstItem.name,
+                                    initialValue: firstItem.name,
+                                    confirmLabel: "Rename"
+                                ), newName != firstItem.name {
+                                    onRename?(firstItem, newName)
+                                }
                             }
                             .disabled(onRename == nil)
                         }
@@ -451,9 +436,16 @@ struct FileBrowserView: View, Equatable {
         // Rename - only for single selection
         if isSingleSelection {
             Button("Rename") {
-                fileToRename = file
-                newFileName = file.name
-                showRenameDialog = true
+                let kind = file.isDirectory ? "Folder" : "File"
+                if let newName = TextInputDialog.show(
+                    title: "Rename \(kind)",
+                    message: "Enter a new name for \"\(file.name)\"",
+                    placeholder: file.name,
+                    initialValue: file.name,
+                    confirmLabel: "Rename"
+                ), newName != file.name {
+                    onRename?(file, newName)
+                }
             }
             .disabled(onRename == nil)
         }
