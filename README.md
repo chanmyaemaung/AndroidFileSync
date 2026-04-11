@@ -6,6 +6,60 @@ No cloud. No Google account needed. Plug in via USB or connect wirelessly over W
 
 ![SwiftUI](https://img.shields.io/badge/SwiftUI-macOS%2013%2B-blue)
 
+## Installation
+
+### From DMG (Recommended)
+
+1. Download the latest `.dmg` from [Releases](#)
+2. Open the DMG and drag **AndroidFileSync** to your Applications folder
+3. **Important — remove Gatekeeper quarantine** (the app is not signed with an Apple Developer account):
+
+   ```bash
+   xattr -cr /Applications/AndroidFileSync.app
+   ```
+
+4. Launch the app — ADB is bundled, no additional setup needed
+
+> **Why?** macOS blocks unsigned apps by default. The `xattr -cr` command removes the quarantine flag so the app can open normally. This is safe — the app is open source, you can verify the code yourself.
+
+### Build from Source
+
+```bash
+git clone https://github.com/YourUsername/AndroidFileSync.git
+cd AndroidFileSync
+open AndroidFileSync.xcodeproj
+```
+
+Build and run with Xcode (⌘R).
+
+To create a DMG:
+
+```bash
+./build-dmg.sh
+```
+
+## Usage
+
+1. Connect your Android phone via **USB** or **WiFi** (click the WiFi button)
+2. Launch AndroidFileSync
+3. The app auto-detects your device and shows a connection badge (blue for USB, green for WiFi)
+4. Browse, drag & drop, download, upload, preview — it just works
+5. **Double-click** any file to preview it (images, videos, PDFs, documents)
+6. **Right-click** for context menu (Preview, Download, Rename, Delete, Copy, Cut)
+
+## Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| "Scanning for Device..." won't stop | Check USB Debugging is enabled and you tapped "Allow" on the phone |
+| Device not detected | Try a different USB cable (some only charge, don't transfer data) |
+| WiFi pairing fails | Ensure both devices are on the same WiFi network |
+| WiFi pairing code not working | Re-open Wireless Debugging on your phone to get a fresh code and try again |
+| Slow transfers | Use a USB 3.0 cable and port for faster speeds |
+| Empty Trash not working | Reconnect the device and try again |
+| App crashes on launch | Ensure macOS 13.0+ and try re-downloading |
+
+
 ## Features
 
 ### Connectivity
@@ -89,58 +143,6 @@ No cloud. No Google account needed. Plug in via USB or connect wirelessly over W
 2. Tap **Pair device with pairing code** — note the IP, port, and code
 3. In the app: Click **WiFi** button → **Advanced** tab → Manually enter the network details
 
-## Installation
-
-### From DMG (Recommended)
-
-1. Download the latest `.dmg` from [Releases](#)
-2. Open the DMG and drag **AndroidFileSync** to your Applications folder
-3. **Important — remove Gatekeeper quarantine** (the app is not signed with an Apple Developer account):
-
-   ```bash
-   xattr -cr /Applications/AndroidFileSync.app
-   ```
-
-4. Launch the app — ADB is bundled, no additional setup needed
-
-> **Why?** macOS blocks unsigned apps by default. The `xattr -cr` command removes the quarantine flag so the app can open normally. This is safe — the app is open source, you can verify the code yourself.
-
-### Build from Source
-
-```bash
-git clone https://github.com/YourUsername/AndroidFileSync.git
-cd AndroidFileSync
-open AndroidFileSync.xcodeproj
-```
-
-Build and run with Xcode (⌘R).
-
-To create a DMG:
-
-```bash
-./build-dmg.sh
-```
-
-## Usage
-
-1. Connect your Android phone via **USB** or **WiFi** (click the WiFi button)
-2. Launch AndroidFileSync
-3. The app auto-detects your device and shows a connection badge (blue for USB, green for WiFi)
-4. Browse, drag & drop, download, upload, preview — it just works
-5. **Double-click** any file to preview it (images, videos, PDFs, documents)
-6. **Right-click** for context menu (Preview, Download, Rename, Delete, Copy, Cut)
-
-## Troubleshooting
-
-| Problem | Solution |
-|---------|----------|
-| "Scanning for Device..." won't stop | Check USB Debugging is enabled and you tapped "Allow" on the phone |
-| Device not detected | Try a different USB cable (some only charge, don't transfer data) |
-| WiFi pairing fails | Ensure both devices are on the same WiFi network |
-| WiFi pairing code not working | Re-open Wireless Debugging on your phone to get a fresh code and try again |
-| Slow transfers | Use a USB 3.0 cable and port for faster speeds |
-| Empty Trash not working | Reconnect the device and try again |
-| App crashes on launch | Ensure macOS 13.0+ and try re-downloading |
 
 ## Tech Stack
 
