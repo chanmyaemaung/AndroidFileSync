@@ -16,7 +16,7 @@ Security is a high priority for AndroidFileSync. If you discover a security vuln
 
 Instead, please report it privately:
 
-1. **Email:** Send your report to [INSERT YOUR EMAIL HERE].
+1. **Email:** Send your report to santoshmorya400@gmail.com.
 2. **GitHub Security Advisories:** If enabled on this repository, navigate to the `Security` tab and click `Report a vulnerability`.
 
 ### What to include in your report
