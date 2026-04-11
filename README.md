@@ -78,7 +78,7 @@ Before the app can talk to your phone, you need to enable a hidden developer set
 ### Step 2: Turn On USB Debugging
 
 1. Go back to **Settings**
-2. Tap **Developer Options** (it's now visible near the bottom of the list)
+2. Search and Tap **Developer Options** 
 3. Find **USB Debugging** and turn it **ON**
 4. Tap **OK** when it asks you to confirm
 
