@@ -1035,7 +1035,32 @@ class ADBManager {
         }
         return false
     }
-    
+
+    /// Returns the IP address of the currently connected wireless ADB device,
+    /// or nil if no wireless device is connected.
+    /// Parses `adb devices` output — wireless serials look like "192.168.1.5:5555".
+    static func getWirelessIP() async -> String? {
+        let adbPath = getADBPath()
+        guard !adbPath.isEmpty else { return nil }
+
+        let (code, output, _) = await Shell.runAsyncWithTimeout(
+            adbPath, args: ["devices"], timeoutSeconds: 5.0
+        )
+        guard code == 0 else { return nil }
+
+        for line in output.split(separator: "\n").map(String.init) {
+            guard !line.starts(with: "List"),
+                  line.contains("\tdevice") || line.hasSuffix(" device"),
+                  let serial = line.split(separator: "\t").first.map(String.init),
+                  serial.contains(":"),
+                  serial.contains(".")
+            else { continue }
+            // serial = "192.168.1.5:5555" → return "192.168.1.5"
+            return serial.components(separatedBy: ":").first
+        }
+        return nil
+    }
+
     // MARK: - Get File Info
     
     /// Gets detailed information about a file

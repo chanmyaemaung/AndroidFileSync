@@ -41,6 +41,10 @@ struct ContentView: View {
     // Trash view state
     @State private var showTrashView = false
     @State private var showWirelessConnect = false
+
+    // App browser state
+    @StateObject private var appManager = AppManager()
+    @State private var activeAppFilter: AppFilter? = nil
     
     // Search and sort state
     @State private var searchQuery = ""
@@ -158,6 +162,9 @@ struct ContentView: View {
             .onChange(of: fileActionManager.pasteConflicts.count) { newCount in
                 showConflictAlert = newCount > 0
             }
+            .onChange(of: deviceManager.sdCardPath) { newPath in
+                sidebarManager.updateSDCard(path: newPath)
+            }
     }
 
     // Level 3: layout + input modifiers
@@ -224,12 +231,26 @@ struct ContentView: View {
             SidebarView(
                 sidebarManager: sidebarManager,
                 currentPath: currentPath,
-                onNavigate: navigateTo,
+                onNavigate: { path in
+                    activeAppFilter = nil   // switch back to file mode
+                    navigateTo(path)
+                },
                 trashCount: fileActionManager.trashedItems.count,
-                onOpenTrash: { showTrashView = true }
+                onOpenTrash: { showTrashView = true },
+                activeAppFilter: activeAppFilter,
+                onSelectAppFilter: { filter in
+                    activeAppFilter = filter
+                },
+                storageStats: deviceManager.storageStats
             )
 
             ZStack {
+                if let appFilter = activeAppFilter {
+                    // ── App Browser ───────────────────────────────────────────
+                    AppBrowserView(appManager: appManager, initialFilter: appFilter)
+                        .transition(.opacity)
+                } else {
+                // ── File Browser ──────────────────────────────────────────────
                 VStack(spacing: 0) {
                     ActionToolbar(
                         currentPath: currentPath,
@@ -269,6 +290,7 @@ struct ContentView: View {
                                 color: "blue"
                             )
                         },
+                        onPermanentDelete: handlePermanentDelete,
                         sortOption: sortOption,
                         onSortChange: { option in sortFiles(by: option) }
                     )
@@ -284,6 +306,7 @@ struct ContentView: View {
                     .padding(24)
                     .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
                 }
+                } // end else (file browser)
             }
         }
     }
@@ -627,6 +650,25 @@ struct ContentView: View {
                 }
                 
                 // Clear selection and refresh
+                selectedFiles.removeAll()
+                await loadFiles()
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showErrorAlert = true
+                }
+            }
+        }
+    }
+
+    private func handlePermanentDelete() {
+        let filesToDelete = files.filter { selectedFiles.contains($0.id) }
+        guard !filesToDelete.isEmpty else { return }
+        Task {
+            do {
+                for file in filesToDelete {
+                    try await fileActionManager.deleteFile(file, permanent: true)
+                }
                 selectedFiles.removeAll()
                 await loadFiles()
             } catch {

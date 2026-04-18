@@ -14,8 +14,10 @@ struct SelectionToolbar: View {
     let onDownload: () -> Void
     let onRename: ((UnifiedFile, String) -> Void)?
     let onChangeExtension: ((String) -> Void)?
+    var onPermanentDelete: (() -> Void)? = nil
     
     @State private var showingDeleteConfirmation = false
+    @State private var showingPermanentDeleteConfirmation = false
     @State private var showingRenameDialog = false
     @State private var showingExtensionDialog = false
     @State private var newFileName = ""
@@ -109,13 +111,25 @@ struct SelectionToolbar: View {
                 }
                 .buttonStyle(.borderless)
                 .foregroundColor(.red)
+
+                // Delete Permanently
+                if onPermanentDelete != nil {
+                    Button {
+                        showingPermanentDeleteConfirmation = true
+                    } label: {
+                        Label(isSingleSelection ? "Delete Permanently" : "Delete All Permanently", systemImage: "trash.slash.fill")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundColor(Color(hue: 0.0, saturation: 0.9, brightness: 0.7))
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .background(Color(NSColor.controlBackgroundColor).opacity(0.95))
         }
         // Move to Trash confirmation
-        .alert(isSingleSelection ? "Move \(singleItem?.name ?? "item") to Trash?" : "Move \(selectedCount) items to Trash?", 
+        .alert(isSingleSelection ? "Move \(singleItem?.name ?? "item") to Trash?" : "Move \(selectedCount) items to Trash?",
                isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) { }
             Button("Move to Trash", role: .destructive) {
@@ -123,6 +137,16 @@ struct SelectionToolbar: View {
             }
         } message: {
             Text("You can restore \(isSingleSelection ? "this item" : "these items") from the Trash.")
+        }
+        // Permanent delete confirmation
+        .alert(isSingleSelection ? "Permanently delete \(singleItem?.name ?? "item")?" : "Permanently delete \(selectedCount) items?",
+               isPresented: $showingPermanentDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete Permanently", role: .destructive) {
+                onPermanentDelete?()
+            }
+        } message: {
+            Text("This will erase \(isSingleSelection ? "this item" : "these items") immediately and cannot be undone")
         }
         // Rename dialog
         .alert("Rename \(singleItem?.isDirectory == true ? "folder" : "file")", isPresented: $showingRenameDialog) {

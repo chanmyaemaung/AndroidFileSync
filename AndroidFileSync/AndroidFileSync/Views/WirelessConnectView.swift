@@ -284,6 +284,8 @@ struct WirelessConnectView: View {
     @State private var isError = false
     @State private var isSuccess = false
     @State private var showConnectOnly = false
+    /// True when user taps "Re-scan" from the connected banner — shows scan UI below the card
+    @State private var showRescanWhileConnected = false
     
     enum PairingTab: String, CaseIterable {
         case autoDiscovery = "Auto-Discovery"
@@ -362,293 +364,548 @@ struct WirelessConnectView: View {
     }
     
     // MARK: - Auto-Discovery Tab
-    
+
     private var autoDiscoveryTab: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                // Instructions
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Auto-Discovery makes pairing easy. Just ensure your phone and Mac are on the same WiFi network.")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    
-                    VStack(alignment: .leading, spacing: 10) {
-                        qrStepRow(number: 1, text: "Open Settings → Developer Options")
-                        qrStepRow(number: 2, text: "Enable Wireless Debugging")
-                        qrStepRow(number: 3, text: "Tap 'Pair device with pairing code'")
+        let alreadyConnected = deviceManager.isConnected && deviceManager.connectionType == .wireless
+        let status = pairingBrowser.status
+        let isSearching = status == .searching
+        let deviceFound = status != .idle && status != .searching && status != .pairing && status != .paired
+
+        return ScrollView {
+            VStack(spacing: 0) {
+
+                // ╔══════════════════════════════════════════════════════╗
+                // ║  STATE 1 — Already connected                         ║
+                // ╚══════════════════════════════════════════════════════╝
+                if alreadyConnected {
+                    connectedBanner
+                        .padding(.horizontal, 20)
+                        .padding(.top, 20)
+
+                    // Optional: compact re-scan results below the card
+                    if showRescanWhileConnected {
+                        VStack(spacing: 0) {
+                            HStack(spacing: 8) {
+                                if isSearching {
+                                    ProgressView().scaleEffect(0.7)
+                                } else {
+                                    Image(systemName: "wifi.circle")
+                                        .foregroundColor(.blue)
+                                }
+                                Text(isSearching ? "Scanning for other devices…" : "Other devices on network")
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundColor(isSearching ? .secondary : .primary)
+                                Spacer()
+                                if !isSearching {
+                                    Button(action: startAutoDiscovery) {
+                                        Image(systemName: "arrow.clockwise")
+                                            .font(.subheadline)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .foregroundColor(.blue)
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.top, 16)
+                            .padding(.bottom, isSearching ? 12 : 8)
+
+                            if deviceFound {
+                                discoveredDevicesPanel
+                                    .padding(.horizontal, 20)
+                                    .padding(.bottom, 20)
+                            }
+                        }
                     }
                 }
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color(NSColor.controlBackgroundColor))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
-                        )
-                )
-                
-                // Content area
-                VStack(spacing: 16) {
-                    if pairingBrowser.status == .idle || pairingBrowser.status == .searching {
-                        // Searching state
-                        VStack(spacing: 16) {
-                            if pairingBrowser.status == .searching {
+
+                // ╔══════════════════════════════════════════════════════╗
+                // ║  STATE 2 — Not connected / scanning                  ║
+                // ╚══════════════════════════════════════════════════════╝
+                if !alreadyConnected {
+                    VStack(spacing: 16) {
+
+                        if status == .idle {
+                            // Setup instructions (only shown when idle, not during scan)
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "info.circle")
+                                        .foregroundColor(.blue)
+                                    Text("How to pair your Android device")
+                                        .font(.subheadline.weight(.semibold))
+                                }
+                                VStack(alignment: .leading, spacing: 8) {
+                                    qrStepRow(number: 1, text: "Open Settings → Developer Options")
+                                    qrStepRow(number: 2, text: "Enable Wireless Debugging")
+                                    qrStepRow(number: 3, text: "Tap 'Pair device with pairing code'")
+                                }
+                            }
+                            .padding(16)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(Color.blue.opacity(0.05))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .stroke(Color.blue.opacity(0.15), lineWidth: 1)
+                                    )
+                            )
+
+                            // Start button
+                            Button(action: startAutoDiscovery) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "magnifyingglass")
+                                    Text("Start Auto-Discovery")
+                                }
+                                .font(.body.weight(.semibold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(
+                                    LinearGradient(colors: [.blue, .indigo],
+                                                   startPoint: .leading, endPoint: .trailing)
+                                )
+                                .cornerRadius(10)
+                            }
+                            .buttonStyle(.plain)
+
+                        } else if isSearching {
+                            // ── Searching state ──
+                            VStack(spacing: 14) {
                                 ProgressView()
-                                    .scaleEffect(1.2)
-                                    .padding(.top, 10)
-                                
-                                Text("Searching for devices on network...")
+                                    .scaleEffect(1.3)
+                                    .padding(.top, 8)
+                                Text("Scanning for devices on your network…")
                                     .font(.headline)
-                                
-                                Text("Ensure your Android device is on the 'Pair device with pairing code' screen.")
+                                Text("Make sure your Android phone is on the\n'Pair device with pairing code' screen.")
                                     .font(.subheadline)
                                     .foregroundColor(.secondary)
                                     .multilineTextAlignment(.center)
-                                
-                                Text("Debug: \(pairingBrowser.discoveredDevices.count) device(s) tracked")
-                                    .font(.caption2)
-                                    .foregroundColor(.gray)
-                                    .padding(.top, 4)
-                            } else {
-                                Button(action: startAutoDiscovery) {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "magnifyingglass")
-                                        Text("Start Auto-Discovery")
-                                    }
-                                    .font(.body.weight(.medium))
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 24)
-                                    .padding(.vertical, 12)
-                                    .background(
-                                        LinearGradient(
-                                            colors: [.blue, .purple],
-                                            startPoint: .leading,
-                                            endPoint: .trailing
-                                        )
-                                    )
-                                    .cornerRadius(10)
-                                }
-                                .buttonStyle(.plain)
                             }
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 180)
-                        
-                    } else {
-                        // Device found / Pairing / Paired / Failed states
-                        VStack(spacing: 16) {
-                            
-                            // Status indicator
-                            autoDiscoveryStatusView
-                            
-                            if pairingBrowser.status != .idle && pairingBrowser.status != .searching && pairingBrowser.status != .pairing && pairingBrowser.status != .paired {
-                                // Input form
-                                VStack(alignment: .leading, spacing: 16) {
-                                    // Select an active IP explicitly for lookup
-                                    let activeIP = selectedDeviceIP.isEmpty ? (pairingBrowser.discoveredDevices.keys.first ?? "") : selectedDeviceIP
+                            .frame(maxWidth: .infinity, minHeight: 160)
+                            .padding()
 
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        if pairingBrowser.discoveredDevices.count > 1 {
-                                            Text("Multiple Devices Discovered")
-                                                .font(.headline)
-                                            
-                                            Picker("Select Device", selection: $selectedDeviceIP) {
-                                                ForEach(Array(pairingBrowser.discoveredDevices.keys.sorted()), id: \.self) { ip in
-                                                    Text(ip).tag(ip)
-                                                }
-                                            }
-                                            .pickerStyle(.menu)
-                                            .labelsHidden()
-                                            
-                                        } else {
-                                            Text("Device Discovered")
-                                                .font(.headline)
-                                            Text("IP: \(activeIP)")
-                                                .font(.subheadline)
-                                                .foregroundColor(.secondary)
-                                        }
-                                    } // CLOSE VStack "spacing: 4"
-                                    
-                                    // Make sure we have a device object
-                                    let isCurrentlyConnected = deviceManager.isConnected && deviceManager.connectionType == .wireless && (deviceManager.lastWirelessIP == activeIP || deviceManager.lastWirelessIP.isEmpty) && !activeIP.isEmpty
-                                    
-                                    if isCurrentlyConnected {
-                                        VStack(spacing: 12) {
-                                            HStack(spacing: 8) {
-                                                Image(systemName: "checkmark.circle.fill")
-                                                    .foregroundColor(.green)
-                                                Text("Currently Connected")
-                                                    .font(.subheadline.weight(.semibold))
-                                                    .foregroundColor(.green)
-                                            }
-                                            .padding(.bottom, 8)
-                                            
-                                            Button(action: {
-                                                Task {
-                                                    await deviceManager.disconnectWireless()
-                                                }
-                                            }) {
-                                                HStack(spacing: 6) {
-                                                    Image(systemName: "xmark.circle")
-                                                    Text("Disconnect")
-                                                }
-                                                .font(.body.weight(.medium))
-                                                .foregroundColor(.white)
-                                                .frame(maxWidth: .infinity)
-                                                .padding(.vertical, 10)
-                                                .background(Color.red.opacity(0.8))
-                                                .cornerRadius(8)
-                                            }
-                                            .buttonStyle(.plain)
-                                        }
-                                    } else if let deviceObj = pairingBrowser.discoveredDevices[activeIP], deviceObj.pairingPort == nil, let cPort = deviceObj.connectPort {
-                                        // The device only broadcasted _adb-tls-connect._tcp
-                                        // Meaning it is ALREADY paired natively, we just need to issue the connect command!
-                                        VStack(spacing: 12) {
-                                            HStack(spacing: 8) {
-                                                Image(systemName: "checkmark.shield.fill")
-                                                    .foregroundColor(.blue)
-                                                Text("Device is already paired")
-                                                    .font(.subheadline.weight(.semibold))
-                                                    .foregroundColor(.blue)
-                                            }
-                                            .padding(.bottom, 8)
-                                            
-                                            Button(action: {
-                                                pairingBrowser.status = .pairing
-                                                Task {
-                                                    let (success, _) = await deviceManager.connectWirelessly(ip: activeIP, port: String(cPort))
-                                                    if success {
-                                                        await MainActor.run {
-                                                            pairingBrowser.status = .paired
-                                                            onConnected?()
-                                                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { dismiss() }
-                                                        }
-                                                    } else {
-                                                        await MainActor.run {
-                                                            pairingBrowser.status = .failed("Connection failed. Please re-pair by clicking 'Pair device with pairing code' on your phone.")
-                                                        }
-                                                    }
-                                                }
-                                            }) {
-                                                HStack(spacing: 6) {
-                                                    Image(systemName: "wifi")
-                                                    Text("Connect Wirelessly")
-                                                }
-                                                .font(.body.weight(.medium))
-                                                .foregroundColor(.white)
-                                                .frame(maxWidth: .infinity)
-                                                .padding(.vertical, 10)
-                                                .background(Color.blue)
-                                                .cornerRadius(8)
-                                            }
-                                            .buttonStyle(.plain)
-                                        }
-                                    } else {
-                                        HStack(spacing: 16) {
-                                            VStack(alignment: .leading, spacing: 8) {
-                                                Text("Pairing Port (from phone)")
-                                                    .font(.subheadline.weight(.medium))
-                                                
-                                                TextField("e.g. 41583", text: $visiblePairingPort)
-                                                    .textFieldStyle(.roundedBorder)
-                                                    .font(.title3.monospacedDigit())
-                                            }
-                                            
-                                            VStack(alignment: .leading, spacing: 8) {
-                                                Text("6-Digit Code")
-                                                    .font(.subheadline.weight(.medium))
-                                                
-                                                TextField("000000", text: $autoPairingCode)
-                                                    .textFieldStyle(.roundedBorder)
-                                                    .font(.title3.monospacedDigit())
-                                            }
-                                        }
-                                    } // Close 'else' block
-                                    
-                                    // Make sure we only show the main pair button if we actually need to pair!
-                                    let needsPairing = !isCurrentlyConnected && !(pairingBrowser.discoveredDevices[activeIP]?.pairingPort == nil && pairingBrowser.discoveredDevices[activeIP]?.connectPort != nil)
-                                    
-                                    if needsPairing {
-                                        Button(action: pairWithAutoDiscovery) {
-                                            HStack(spacing: 6) {
-                                                Image(systemName: "link")
-                                                Text("Pair & Connect")
-                                            }
-                                            .font(.body.weight(.medium))
-                                            .foregroundColor(.white)
-                                            .frame(maxWidth: .infinity)
-                                            .padding(.vertical, 10)
-                                            .background((autoPairingCode.count == 6 && !visiblePairingPort.isEmpty) ? Color.blue : Color.gray)
-                                            .cornerRadius(8)
-                                        }
-                                        .buttonStyle(.plain)
-                                        .disabled(autoPairingCode.count != 6 || visiblePairingPort.isEmpty)
-                                    }
-                                }
-                                .onAppear {
-                                    if selectedDeviceIP.isEmpty, let firstIP = pairingBrowser.discoveredDevices.keys.first {
-                                        selectedDeviceIP = firstIP
-                                    }
-                                    if let dev = pairingBrowser.discoveredDevices[selectedDeviceIP], let port = dev.pairingPort, visiblePairingPort.isEmpty {
-                                        visiblePairingPort = String(port)
-                                    }
-                                }
-                                .onChange(of: pairingBrowser.discoveredDevices) { devices in
-                                    if selectedDeviceIP.isEmpty, let firstIP = devices.keys.first {
-                                        selectedDeviceIP = firstIP
-                                    } else if !selectedDeviceIP.isEmpty, devices[selectedDeviceIP] == nil, let firstIP = devices.keys.first {
-                                        selectedDeviceIP = firstIP
-                                    }
-                                    if let dev = devices[selectedDeviceIP], let port = dev.pairingPort, visiblePairingPort.isEmpty {
-                                        visiblePairingPort = String(port)
-                                    }
-                                }
-                                .onChange(of: selectedDeviceIP) { newIP in
-                                    visiblePairingPort = ""
-                                    if let dev = pairingBrowser.discoveredDevices[newIP], let port = dev.pairingPort {
-                                        visiblePairingPort = String(port)
-                                    }
-                                }
-                                .padding(20)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .fill(Color(NSColor.controlBackgroundColor))
-                                )
-                                .shadow(color: .black.opacity(0.1), radius: 8, y: 4)
+                        } else if status == .pairing {
+                            // ── Pairing in progress ──
+                            VStack(spacing: 12) {
+                                ProgressView().scaleEffect(1.2)
+                                Text("Pairing…").font(.headline)
                             }
+                            .frame(maxWidth: .infinity, minHeight: 120)
+
+                        } else if status == .paired {
+                            // ── Paired / connected success ──
+                            autoDiscoveryStatusView
+
+                        } else if deviceFound {
+                            // ── Device(s) found ──
+                            autoDiscoveryStatusView
+                            discoveredDevicesPanel
                         }
                     }
-                }
-                
-                Spacer(minLength: 20)
-                
-                // Bottom buttons
-                HStack {
-                    Button("Cancel") { dismiss() }
-                        .keyboardShortcut(.cancelAction)
-                    
-                    Spacer()
-                    
-                    if pairingBrowser.status != .idle && pairingBrowser.status != .searching {
-                        Button(action: startAutoDiscovery) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "arrow.clockwise")
-                                Text("Search Again")
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 20)
+
+                    if status != .idle {
+                        // Bottom: Cancel + Search Again
+                        HStack {
+                            Button("Cancel") { dismiss() }
+                                .keyboardShortcut(.cancelAction)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            if deviceFound || status == .searching {
+                                Button(action: startAutoDiscovery) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "arrow.clockwise")
+                                        Text("Search Again")
+                                    }
+                                    .font(.subheadline)
+                                }
                             }
                         }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 16)
                     }
                 }
             }
-            .padding(24)
         }
         .onAppear {
-            if pairingBrowser.status == .idle {
+            showRescanWhileConnected = false
+            if !alreadyConnected && status == .idle {
                 startAutoDiscovery()
             }
         }
     }
-    
+
+    // MARK: - Discovered Devices Panel
+
+    /// All discovered devices as selectable rows + action panel for the selected one.
+    @ViewBuilder
+    private var discoveredDevicesPanel: some View {
+        let sortedIPs = pairingBrowser.discoveredDevices.keys.sorted()
+        let activeIP = selectedDeviceIP.isEmpty ? (sortedIPs.first ?? "") : selectedDeviceIP
+
+        VStack(spacing: 12) {
+            // ── Device list ──────────────────────────────────────────────────
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(sortedIPs.count > 1 ? "\(sortedIPs.count) Devices Found" : "Device Found")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    if sortedIPs.count > 1 {
+                        Text("Tap to select")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                ForEach(sortedIPs, id: \.self) { ip in
+                    discoveredDeviceRow(ip: ip, isSelected: ip == activeIP)
+                }
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(NSColor.controlBackgroundColor).opacity(0.5))
+            )
+
+            // ── Action panel ─────────────────────────────────────────────────
+            discoveredDeviceActionPanel(for: activeIP)
+        }
+        .onAppear {
+            if selectedDeviceIP.isEmpty, let first = pairingBrowser.discoveredDevices.keys.first {
+                selectedDeviceIP = first
+            }
+            if let dev = pairingBrowser.discoveredDevices[selectedDeviceIP],
+               let port = dev.pairingPort, visiblePairingPort.isEmpty {
+                visiblePairingPort = String(port)
+            }
+        }
+        .onChange(of: pairingBrowser.discoveredDevices) { devices in
+            if selectedDeviceIP.isEmpty, let first = devices.keys.first {
+                selectedDeviceIP = first
+            } else if !selectedDeviceIP.isEmpty, devices[selectedDeviceIP] == nil,
+                      let first = devices.keys.first {
+                selectedDeviceIP = first
+            }
+            if let dev = devices[selectedDeviceIP], let port = dev.pairingPort, visiblePairingPort.isEmpty {
+                visiblePairingPort = String(port)
+            }
+        }
+    }
+
+    /// A single selectable device row for the discovered list.
+    private func discoveredDeviceRow(ip: String, isSelected: Bool) -> some View {
+        let dev = pairingBrowser.discoveredDevices[ip]
+        let isAlreadyPaired = dev?.pairingPort == nil && dev?.connectPort != nil
+
+        return Button(action: {
+            selectedDeviceIP = ip
+            visiblePairingPort = ""
+            if let port = dev?.pairingPort { visiblePairingPort = String(port) }
+        }) {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(isSelected ? Color.blue.opacity(0.15) : Color.secondary.opacity(0.1))
+                        .frame(width: 36, height: 36)
+                    Image(systemName: "iphone")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(isSelected ? .blue : .secondary)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(ip)
+                        .font(.system(.subheadline, design: .monospaced).weight(.medium))
+                        .foregroundColor(.primary)
+                    Text(isAlreadyPaired ? "Already paired · tap to connect" : "Needs pairing")
+                        .font(.caption)
+                        .foregroundColor(isAlreadyPaired ? .green : .orange)
+                }
+                Spacer()
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundColor(isSelected ? .blue : .secondary.opacity(0.4))
+                    .font(.system(size: 18))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            // Use a non-zero fill so the entire row is a valid hit target on macOS
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isSelected
+                          ? Color.blue.opacity(0.07)
+                          : Color.primary.opacity(0.0001))  // invisible but hittable
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(isSelected ? Color.blue.opacity(0.3) : Color.secondary.opacity(0.12), lineWidth: 1)
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8))  // hit area = full row
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Action panel shown below the device list for the currently selected IP.
+    @ViewBuilder
+    private func discoveredDeviceActionPanel(for activeIP: String) -> some View {
+        let isCurrentlyConnected = deviceManager.isConnected
+            && deviceManager.connectionType == .wireless
+            && deviceManager.lastWirelessIP == activeIP
+            && !activeIP.isEmpty
+        let deviceObj = pairingBrowser.discoveredDevices[activeIP]
+        let isAlreadyPaired = deviceObj?.pairingPort == nil && deviceObj?.connectPort != nil
+
+        if isCurrentlyConnected {
+            // Already connected to this specific device
+            VStack(spacing: 10) {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
+                    Text("Currently Connected")
+                        .font(.subheadline.weight(.semibold)).foregroundColor(.green)
+                }
+                Button(action: { Task { await deviceManager.disconnectWireless() } }) {
+                    Label("Disconnect", systemImage: "xmark.circle")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 9)
+                        .background(Color.red.opacity(0.8))
+                        .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(14)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.green.opacity(0.06)))
+
+        } else if isAlreadyPaired, let cPort = deviceObj?.connectPort {
+            // Paired but not connected — just needs adb connect
+            VStack(spacing: 10) {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.shield.fill").foregroundColor(.blue)
+                    Text("Device is already paired")
+                        .font(.subheadline.weight(.semibold)).foregroundColor(.blue)
+                }
+                Button(action: {
+                    pairingBrowser.status = .pairing
+                    Task {
+                        let (success, _) = await deviceManager.connectWirelessly(ip: activeIP, port: String(cPort))
+                        await MainActor.run {
+                            if success {
+                                pairingBrowser.status = .paired
+                                onConnected?()
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { dismiss() }
+                            } else {
+                                pairingBrowser.status = .failed("Connection failed. Re-pair on your phone.")
+                            }
+                        }
+                    }
+                }) {
+                    Label("Connect Wirelessly", systemImage: "wifi")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 9)
+                        .background(Color.blue)
+                        .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(14)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.blue.opacity(0.06)))
+
+        } else {
+            // Needs fresh pairing — show port + code fields
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Pairing Port").font(.subheadline.weight(.medium))
+                        TextField("e.g. 41583", text: $visiblePairingPort)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.body.monospacedDigit())
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("6-Digit Code").font(.subheadline.weight(.medium))
+                        TextField("000000", text: $autoPairingCode)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.body.monospacedDigit())
+                    }
+                }
+                Button(action: pairWithAutoDiscovery) {
+                    Label("Pair & Connect", systemImage: "link")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 9)
+                        .background((autoPairingCode.count == 6 && !visiblePairingPort.isEmpty) ? Color.blue : Color.gray)
+                        .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
+                .disabled(autoPairingCode.count != 6 || visiblePairingPort.isEmpty)
+            }
+            .padding(14)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color(NSColor.controlBackgroundColor)))
+        }
+    }
+
+    /// Rich info card shown when a WiFi connection is already active.
+    @ViewBuilder
+    private var connectedBanner: some View {
+        VStack(spacing: 16) {
+
+            // ── Connection status header ──────────────────────────────────────
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(Color.green.opacity(0.15))
+                        .frame(width: 52, height: 52)
+                    Image(systemName: "wifi")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundColor(.green)
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text("Connected")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                        Text("WiFi")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.green))
+                    }
+                    Text(deviceManager.deviceName)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                // Live connected indicator
+                Circle()
+                    .fill(Color.green)
+                    .frame(width: 8, height: 8)
+                    .overlay(
+                        Circle()
+                            .stroke(Color.green.opacity(0.4), lineWidth: 3)
+                            .scaleEffect(1.6)
+                    )
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.green.opacity(0.07))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.green.opacity(0.18), lineWidth: 1)
+                    )
+            )
+
+            // ── Connection details grid ───────────────────────────────────────
+            VStack(spacing: 1) {
+                infoRow(icon: "network", label: "IP Address",
+                        value: deviceManager.lastWirelessIP.isEmpty ? "Unknown" : deviceManager.lastWirelessIP,
+                        valueFont: .system(.subheadline, design: .monospaced))
+
+                Divider().padding(.horizontal, 16)
+
+                infoRow(icon: "memorychip", label: "Device",
+                        value: deviceManager.deviceName)
+
+                if let internalStorage = deviceManager.storageStats["/storage/emulated/0"] {
+                    Divider().padding(.horizontal, 16)
+                    infoRow(icon: "internaldrive", label: "Internal Storage",
+                            value: internalStorage.usedText)
+                }
+
+                if let sdPath = deviceManager.sdCardPath,
+                   let sdStorage = deviceManager.storageStats[sdPath] {
+                    Divider().padding(.horizontal, 16)
+                    infoRow(icon: "sdcard", label: "SD Card",
+                            value: sdStorage.usedText)
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(NSColor.controlBackgroundColor))
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+
+            // ── Actions ───────────────────────────────────────────────────────
+
+            // Scan for another / additional device
+            Button(action: {
+                showRescanWhileConnected = true
+                startAutoDiscovery()
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus.circle")
+                    Text("Connect Another Device / Re-scan")
+                }
+                .font(.subheadline.weight(.medium))
+                .foregroundColor(.blue)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 9)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.blue.opacity(0.08))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.blue.opacity(0.2)))
+                )
+            }
+            .buttonStyle(.plain)
+
+            HStack(spacing: 10) {
+                Button(action: { Task { await deviceManager.disconnectWireless() } }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "xmark.circle")
+                        Text("Disconnect")
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 9)
+                    .background(Color.red.opacity(0.75))
+                    .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
+
+                Button("Close") { dismiss() }
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 9)
+                    .background(Color(NSColor.controlBackgroundColor))
+                    .cornerRadius(8)
+                    .buttonStyle(.plain)
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    /// Reusable detail row for the connection info grid.
+    private func infoRow(icon: String, label: String, value: String,
+                         valueFont: Font = .subheadline) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
+                .frame(width: 20)
+
+            Text(label)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+
+            Spacer()
+
+            Text(value)
+                .font(valueFont.weight(.medium))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
     @ViewBuilder
     private var autoDiscoveryStatusView: some View {
         switch pairingBrowser.status {

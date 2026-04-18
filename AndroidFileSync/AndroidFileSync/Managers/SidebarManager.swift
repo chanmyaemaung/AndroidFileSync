@@ -25,11 +25,19 @@ class SidebarManager: ObservableObject {
     /// Paths that have been checked at least once (so we can distinguish "unchecked" from "missing")
     @Published var checkedPaths: Set<String> = []
 
+    /// Dynamically injected SD card item (nil when no card detected)
+    @Published var sdCardItem: QuickAccessItem? = nil
+
     // MARK: - Computed
 
-    /// All currently visible sidebar items (built-in – hidden + custom)
+    /// All currently visible sidebar items (built-in - hidden + SD card if present + custom)
     var visibleItems: [QuickAccessItem] {
-        let builtIn = QuickAccessItem.commonFolders.filter { !hiddenBuiltInPaths.contains($0.path) }
+        var builtIn = QuickAccessItem.commonFolders.filter { !hiddenBuiltInPaths.contains($0.path) }
+        // Insert SD card right after Internal Storage if detected
+        if let sd = sdCardItem {
+            let insertIndex = builtIn.firstIndex(where: { $0.name == "Internal Storage" }).map { $0 + 1 } ?? 1
+            builtIn.insert(sd, at: min(insertIndex, builtIn.count))
+        }
         return builtIn + customItems
     }
 
@@ -81,6 +89,31 @@ class SidebarManager: ObservableObject {
             self.existingPaths = newExisting
             self.checkedPaths = newChecked
         }
+    }
+
+    // MARK: - SD Card
+
+    /// Call this whenever DeviceManager.sdCardPath changes.
+    /// Pass nil to remove the SD card entry (device disconnected or no card).
+    func updateSDCard(path: String?) {
+        guard let path else {
+            sdCardItem = nil
+            // Remove any stale SD card paths from tracking sets
+            let sdPaths = checkedPaths.filter { $0.hasPrefix("/storage/") && $0 != "/storage/emulated/0" }
+            existingPaths.subtract(sdPaths)
+            checkedPaths.subtract(sdPaths)
+            return
+        }
+        sdCardItem = QuickAccessItem(
+            name: "SD Card",
+            icon: "sdcard.fill",
+            path: path,
+            color: "orange",
+            isBuiltIn: false
+        )
+        // Mark it as existing immediately since DeviceManager already confirmed it
+        existingPaths.insert(path)
+        checkedPaths.insert(path)
     }
 
     // MARK: - Mutations

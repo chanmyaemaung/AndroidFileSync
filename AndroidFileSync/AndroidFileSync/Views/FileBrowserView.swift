@@ -27,6 +27,8 @@ struct FileBrowserView: View, Equatable {
     var onDownloadFolder: ((UnifiedFile) -> Void)? = nil
     /// Called when the user chooses "Add to Sidebar" from the folder context menu
     var onAddToSidebar: ((UnifiedFile) -> Void)? = nil
+    /// Called when the user chooses "Delete Permanently" from the selection toolbar
+    var onPermanentDelete: (() -> Void)? = nil
     
     // Sorting support
     var sortOption: ActionToolbar.SortOption = .name
@@ -70,7 +72,8 @@ struct FileBrowserView: View, Equatable {
                     onDelete: { onBatchDelete?() },
                     onDownload: { onBatchDownload?() },
                     onRename: onRename,
-                    onChangeExtension: onBatchChangeExtension
+                    onChangeExtension: onBatchChangeExtension,
+                    onPermanentDelete: onPermanentDelete
                 )
             }
         }
@@ -167,7 +170,9 @@ struct FileBrowserView: View, Equatable {
     @ViewBuilder
     private var statusIndicator: some View {
         if isLoading {
-            ProgressView().scaleEffect(0.7)
+            ProgressView()
+                .scaleEffect(0.7)
+                .frame(width: 16, height: 16)   // fixed size — prevents growing in the HStack
         } else {
             Text("\(files.count) items")
                 .font(.caption)

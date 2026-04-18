@@ -79,4 +79,4 @@ echo ""
 echo "👥 Users can then:"
 echo "   1. Download the DMG"
 echo "   2. Drag app to Applications"
-echo "   3. Right-click → Open (first time only)"
+

@@ -32,12 +32,14 @@
 				Assets.xcassets,
 				ContentView.swift,
 				Managers/ADBManager.swift,
+				Managers/AppManager.swift,
 				Managers/DeviceManager.swift,
 				Managers/DownloadManager.swift,
 				Managers/FileActionManager.swift,
 				Managers/FilePreviewManager.swift,
 				Managers/SidebarManager.swift,
 				Managers/UploadManager.swift,
+				Models/AppInfo.swift,
 				Models/Models.swift,
 				Utilities/ConflictDialog.swift,
 				Utilities/DropCoordinator.swift,
@@ -51,6 +53,7 @@
 				Utilities/TextInputDialog.swift,
 				Utilities/ThrottledPublisher.swift,
 				Views/ActionToolbar.swift,
+				Views/AppBrowserView.swift,
 				Views/EmptyStateView.swift,
 				Views/FileBrowserView.swift,
 				Views/FileRowView.swift,
@@ -339,7 +342,7 @@
 					/opt/homebrew/Cellar/libusb/1.0.29/lib,
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.santosh.AndroidFileSync;
+				PRODUCT_BUNDLE_IDENTIFIER = com.santosh.AndroidFileSync1;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
@@ -388,7 +391,7 @@
 					/opt/homebrew/Cellar/libusb/1.0.29/lib,
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.santosh.AndroidFileSync;
+				PRODUCT_BUNDLE_IDENTIFIER = com.santosh.AndroidFileSync1;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
