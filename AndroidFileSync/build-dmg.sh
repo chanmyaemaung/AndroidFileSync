@@ -67,16 +67,5 @@ hdiutil create -volname "$APP_NAME" \
     -ov -format UDZO \
     "$BUILD_DIR/$DMG_NAME"
 
-echo ""
-echo "✅ DMG created: $BUILD_DIR/$DMG_NAME"
-echo ""
-echo "📤 Next steps:"
-echo "   1. Go to your GitHub repo → Releases → Create new release"
-echo "   2. Upload: $BUILD_DIR/$DMG_NAME"
-echo "   3. Add release notes"
-echo "   4. Publish!"
-echo ""
-echo "👥 Users can then:"
-echo "   1. Download the DMG"
-echo "   2. Drag app to Applications"
+echo "DMG created successfully"
 
